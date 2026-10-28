@@ -117,7 +117,7 @@ static uint32_t last_decode_ms = 0;
 static bool last_decode_ok = true;
 static PNG room_png_decoder;
 static JPEGDEC room_jpg_decoder;
-static bool photo_cache_enabled = false;
+static bool photo_cache_enabled = true;
 static uint16_t *photo_cache[2][4] = {};
 static bool photo_cache_valid[2][4] = {};
 static constexpr size_t PHOTO_BYTES = IMG_W * IMG_H * sizeof(uint16_t);
