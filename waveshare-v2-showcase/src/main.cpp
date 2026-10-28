@@ -121,7 +121,7 @@ void setup() {
   Wire1.beginTransmission(TOUCH_ADDR);
   bool detected = Wire1.endTransmission() == 0;
   Serial.printf("CST3530 V2: %s\\n", detected ? "detected" : "not detected");
-  lcd->fillScreen(BLACK);
+  lcd->fillScreen(0x0000);
   lv_init();
   display = lv_display_create(WIDTH, HEIGHT);
   lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
