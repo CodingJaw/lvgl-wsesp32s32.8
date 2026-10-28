@@ -14,7 +14,12 @@ static constexpr int HEIGHT = 320;
 
 // Touch pins/protocol MUST be imported from the verified CST3530 swipe-test
 // firmware before enabling touch. Do not assume CST328 and CST3530 match.
-static constexpr bool TOUCH_READY = false;
+static constexpr bool TOUCH_READY = true;
+static constexpr int TOUCH_SDA = 1, TOUCH_SCL = 3, TOUCH_RST = 2, TOUCH_INT = 4;
+static constexpr uint8_t TOUCH_ADDR = 0x58;
+static uint16_t touch_x = 0, touch_y = 0;
+static bool touch_pressed = false;
+static uint32_t last_touch_poll = 0;
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, GFX_NOT_DEFINED);
 Arduino_GFX *lcd = new Arduino_ST7789(bus, LCD_RST, 0, true, WIDTH, HEIGHT);
@@ -31,9 +36,35 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   lv_display_flush_ready(d);
 }
 
+static bool touch_command(uint32_t command, bool stop = true) {
+  Wire1.beginTransmission(TOUCH_ADDR);
+  for (int shift = 24; shift >= 0; shift -= 8) Wire1.write(uint8_t(command >> shift));
+  return Wire1.endTransmission(stop) == 0;
+}
+
+static bool touch_read(uint8_t frame[9]) {
+  bool ok = touch_command(0xd0070000, false);
+  if (ok) ok = Wire1.requestFrom(TOUCH_ADDR, size_t(9)) == 9;
+  if (ok) for (int i = 0; i < 9; ++i) frame[i] = Wire1.read();
+  const bool ack = touch_command(0xd00002ab);
+  return ok && ack;
+}
+
 static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
-  // Safe default until the existing CST3530 read implementation is imported.
-  data->state = LV_INDEV_STATE_RELEASED;
+  if (millis() - last_touch_poll >= 20) {
+    last_touch_poll = millis();
+    uint8_t frame[9] = {};
+    bool ok = touch_read(frame);
+    uint8_t count = frame[3] & 15;
+    uint16_t x = uint16_t(frame[4]) | (uint16_t(frame[7] & 15) << 8);
+    uint16_t y = uint16_t(frame[5]) | (uint16_t(frame[7] & 0xf0) << 4);
+    touch_pressed = ok && count > 0 && count <= 5 &&
+                    (frame[8] & 0xf0) != 0 && x < WIDTH && y < HEIGHT;
+    if (touch_pressed) { touch_x = x; touch_y = y; }
+  }
+  data->point.x = touch_x;
+  data->point.y = touch_y;
+  data->state = touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
 static void show_page(int page) {
@@ -59,7 +90,7 @@ static void show_page(int page) {
     lv_obj_align(spin, LV_ALIGN_CENTER, 0, 45);
   } else {
     lv_obj_t *label = lv_label_create(content);
-    lv_label_set_text(label, "LVGL 9 Showcase\nWaveshare 2.8 V2\nST7789 240x320\nCST3530 pending");
+    lv_label_set_text(label, "LVGL 9 Showcase\nWaveshare 2.8 V2\nST7789 240x320\nCST3530 touch enabled");
     lv_obj_center(label);
   }
 }
@@ -71,7 +102,25 @@ static void nav_cb(lv_event_t *e) {
 
 void setup() {
   Serial.begin(115200);
+  // Keep the battery power latch asserted (same as the working swipe branch).
+  pinMode(7, OUTPUT);
+  digitalWrite(7, HIGH);
+  pinMode(5, OUTPUT);
+  digitalWrite(5, LOW);
   lcd->begin(40000000);
+  ledcAttach(5, 20000, 8);
+  ledcWrite(5, 128);
+  Wire1.begin(TOUCH_SDA, TOUCH_SCL, 400000);
+  Wire1.setTimeOut(50);
+  pinMode(TOUCH_INT, INPUT);
+  pinMode(TOUCH_RST, OUTPUT);
+  digitalWrite(TOUCH_RST, LOW);
+  delay(100);
+  digitalWrite(TOUCH_RST, HIGH);
+  delay(500);
+  Wire1.beginTransmission(TOUCH_ADDR);
+  bool detected = Wire1.endTransmission() == 0;
+  Serial.printf("CST3530 V2: %s\\n", detected ? "detected" : "not detected");
   lcd->fillScreen(BLACK);
   lv_init();
   display = lv_display_create(WIDTH, HEIGHT);
