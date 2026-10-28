@@ -67,26 +67,36 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
   data->state = touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
+static lv_obj_t *diag_label = nullptr;
+static uint32_t diag_last = 0;
+static uint32_t diag_frames = 0;
+static int current_page = 0;
+
 static void show_page(int page) {
+  current_page = page;
+  diag_label = nullptr;
   lv_obj_clean(content);
   if (page == 0) {
     lv_obj_t *label = lv_label_create(content);
-    lv_label_set_text(label, "LVGL Widgets");
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 8);
+    lv_label_set_text(label, "Widgets");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
     lv_obj_t *slider = lv_slider_create(content);
-    lv_obj_set_width(slider, 190);
-    lv_obj_align(slider, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_set_width(slider, 175);
+    lv_obj_align(slider, LV_ALIGN_TOP_MID, 0, 43);
     lv_obj_t *sw = lv_switch_create(content);
-    lv_obj_align(sw, LV_ALIGN_CENTER, 0, 35);
+    lv_obj_align(sw, LV_ALIGN_TOP_MID, 0, 85);
+    lv_obj_t *dropdown = lv_dropdown_create(content);
+    lv_dropdown_set_options(dropdown, "Normal\\nEco\\nPerformance");
+    lv_obj_set_width(dropdown, 180);
+    lv_obj_align(dropdown, LV_ALIGN_TOP_MID, 0, 125);
   } else if (page == 1) {
     lv_obj_t *label = lv_label_create(content);
     lv_label_set_text(label, "Controls");
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
     lv_obj_t *bar = lv_bar_create(content);
     lv_obj_set_width(bar, 180);
     lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 45);
     lv_bar_set_value(bar, 65, LV_ANIM_OFF);
-
     lv_obj_t *slider = lv_slider_create(content);
     lv_obj_set_width(slider, 180);
     lv_obj_align(slider, LV_ALIGN_TOP_MID, 0, 80);
@@ -96,7 +106,6 @@ static void show_page(int page) {
       auto *target = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
       lv_bar_set_value(target, lv_slider_get_value(source), LV_ANIM_OFF);
     }, LV_EVENT_VALUE_CHANGED, bar);
-
     lv_obj_t *spin = lv_spinner_create(content);
     lv_obj_set_size(spin, 36, 36);
     lv_obj_align(spin, LV_ALIGN_TOP_MID, 0, 119);
@@ -109,21 +118,54 @@ static void show_page(int page) {
     lv_obj_add_event_cb(toggle, [](lv_event_t *e) {
       auto *button = lv_event_get_target_obj(e);
       auto *spinner = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
-      bool running = !lv_obj_has_state(button, LV_STATE_CHECKED);
-      if (running) {
+      bool stop = !lv_obj_has_state(button, LV_STATE_CHECKED);
+      if (stop) {
         lv_obj_add_state(button, LV_STATE_CHECKED);
         lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
       } else {
         lv_obj_remove_state(button, LV_STATE_CHECKED);
         lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
       }
-      lv_obj_t *label = lv_obj_get_child(button, 0);
-      lv_label_set_text(label, running ? "Start" : "Stop");
+      lv_label_set_text(lv_obj_get_child(button, 0), stop ? "Start" : "Stop");
     }, LV_EVENT_CLICKED, spin);
-  } else {
+  } else if (page == 2) {
     lv_obj_t *label = lv_label_create(content);
-    lv_label_set_text(label, "LVGL 9 Showcase\nWaveshare 2.8 V2\nST7789 240x320\nCST3530 touch enabled");
-    lv_obj_center(label);
+    lv_label_set_text(label, "Chart (drag to scroll)");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_t *chart = lv_chart_create(content);
+    lv_obj_set_size(chart, 195, 125);
+    lv_obj_align(chart, LV_ALIGN_TOP_MID, 0, 32);
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(chart, 20);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_div_line_count(chart, 5, 5);
+    lv_chart_series_t *series = lv_chart_add_series(chart, lv_palette_main(LV_PALETTE_BLUE), LV_CHART_AXIS_PRIMARY_Y);
+    for (int i = 0; i < 20; ++i) lv_chart_set_next_value(chart, series, 40 + (i * 17 + i * i * 3) % 55);
+    lv_chart_refresh(chart);
+    lv_obj_t *arc = lv_arc_create(content);
+    lv_obj_set_size(arc, 62, 62);
+    lv_obj_align(arc, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_value(arc, 45);
+  } else if (page == 3) {
+    lv_obj_t *label = lv_label_create(content);
+    lv_label_set_text(label, "Scrollable list");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 3);
+    lv_obj_t *list = lv_list_create(content);
+    lv_obj_set_size(list, 190, 166);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 30);
+    const char *items[] = {"Living room", "Bedroom", "Office", "TV 1", "TV 2", "TV 3", "IR router", "USB HID"};
+    for (const char *item : items) {
+      lv_obj_t *btn = lv_list_add_button(list, nullptr, item);
+      lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+        lv_obj_t *btn = lv_event_get_target_obj(e);
+        Serial.printf("List selected: %s\\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
+      }, LV_EVENT_CLICKED, nullptr);
+    }
+  } else {
+    diag_label = lv_label_create(content);
+    lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
+    lv_label_set_text(diag_label, "Diagnostics loading...");
   }
 }
 
@@ -167,13 +209,13 @@ void setup() {
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(root, 5, 0);
   lv_obj_t *nav = lv_obj_create(root);
-  lv_obj_set_size(nav, LV_PCT(100), 58);
+  lv_obj_set_size(nav, LV_PCT(100), 58);\n  lv_obj_add_flag(nav, LV_OBJ_FLAG_SCROLLABLE);\n  lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Info"};
-  for (int i = 0; i < 3; ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Diag"};
+  for (int i = 0; i < 5; ++i) {
     lv_obj_t *btn = lv_button_create(nav);
-    lv_obj_set_width(btn, 70);
+    lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, names[i]);
     lv_obj_center(label);
