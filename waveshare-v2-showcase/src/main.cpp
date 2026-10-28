@@ -168,12 +168,6 @@ static void update_scene_stats() {
     (unsigned long)last_scene_ms, (unsigned long)flush_calls,
     (unsigned long)flush_pixels, (unsigned long)flush_us);
 }
-static void select_scene(int kind) {
-  scene_kind = kind;
-  flush_calls = flush_pixels = flush_us = 0;
-  render_scene(scene_kind, scene_detail);
-  update_scene_stats();
-}
 static void close_scene_overlay() {
   if (!scene_overlay) return;
   lv_obj_delete(scene_overlay);
@@ -189,7 +183,7 @@ static void full_scene_next(int direction) {
     const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
     lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
   }
-  Serial.printf("Scene %d generated in %lu ms; pending LCD flush\\n", scene_kind, (unsigned long)last_scene_ms);
+  Serial.printf("Scene %d generated in %lu ms; pending LCD flush\n", scene_kind, (unsigned long)last_scene_ms);
 }
 static void scene_gesture_cb(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
@@ -331,7 +325,7 @@ static void show_page(int page) {
     }
   } else if (page == 4) {
     lv_obj_t *intro = lv_label_create(content);
-    lv_label_set_text(intro, "Full-screen room backgrounds\\nSwipe left / right to switch\\nExit returns to showcase");
+    lv_label_set_text(intro, "Full-screen room backgrounds\nSwipe left / right to switch\nExit returns to showcase");
     lv_obj_align(intro, LV_ALIGN_TOP_MID, 0, 12);
     lv_obj_t *launch = lv_button_create(content);
     lv_obj_set_size(launch, 170, 48);
@@ -341,7 +335,7 @@ static void show_page(int page) {
     lv_obj_center(launch_label);
     lv_obj_add_event_cb(launch, [](lv_event_t *) { open_full_scene(); }, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *detail = lv_dropdown_create(content);
-    lv_dropdown_set_options(detail, "Flat\\nTexture\\nNoise");
+    lv_dropdown_set_options(detail, "Flat\nTexture\nNoise");
     lv_obj_set_width(detail, 170);
     lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -12);
     lv_dropdown_set_selected(detail, scene_detail);
