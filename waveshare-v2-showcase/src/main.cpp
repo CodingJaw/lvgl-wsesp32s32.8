@@ -86,7 +86,7 @@ static void show_page(int page) {
     lv_obj_t *sw = lv_switch_create(content);
     lv_obj_align(sw, LV_ALIGN_TOP_MID, 0, 85);
     lv_obj_t *dropdown = lv_dropdown_create(content);
-    lv_dropdown_set_options(dropdown, "Normal\\nEco\\nPerformance");
+    lv_dropdown_set_options(dropdown, "Normal\nEco\nPerformance");
     lv_obj_set_width(dropdown, 180);
     lv_obj_align(dropdown, LV_ALIGN_TOP_MID, 0, 125);
   } else if (page == 1) {
@@ -136,11 +136,14 @@ static void show_page(int page) {
     lv_obj_set_size(chart, 195, 125);
     lv_obj_align(chart, LV_ALIGN_TOP_MID, 0, 32);
     lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_point_count(chart, 20);
+    lv_chart_set_point_count(chart, 60);
+    lv_chart_set_zoom_x(chart, 768);
+    lv_obj_add_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(chart, LV_DIR_HOR);
     lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
     lv_chart_set_div_line_count(chart, 5, 5);
     lv_chart_series_t *series = lv_chart_add_series(chart, lv_palette_main(LV_PALETTE_BLUE), LV_CHART_AXIS_PRIMARY_Y);
-    for (int i = 0; i < 20; ++i) lv_chart_set_next_value(chart, series, 40 + (i * 17 + i * i * 3) % 55);
+    for (int i = 0; i < 60; ++i) lv_chart_set_next_value(chart, series, 40 + (i * 17 + i * i * 3) % 55);
     lv_chart_refresh(chart);
     lv_obj_t *arc = lv_arc_create(content);
     lv_obj_set_size(arc, 62, 62);
