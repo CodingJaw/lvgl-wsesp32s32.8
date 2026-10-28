@@ -29,6 +29,8 @@ static uint16_t draw_buf[WIDTH * 24];
 static uint32_t last_tick;
 static lv_obj_t *content;
 
+static uint32_t flush_pixels = 0, flush_calls = 0, flush_us = 0;
+
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   const int w = a->x2 - a->x1 + 1;
   const int h = a->y2 - a->y1 + 1;
@@ -82,7 +84,7 @@ static uint16_t *scene_pixels = nullptr;
 static lv_image_dsc_t scene_dsc = {};
 static lv_obj_t *scene_image = nullptr;
 static lv_obj_t *scene_stats = nullptr;
-static uint32_t flush_pixels = 0, flush_calls = 0, flush_us = 0;
+
 static uint32_t last_scene_ms = 0;
 static int scene_kind = 0, scene_detail = 0;
 
