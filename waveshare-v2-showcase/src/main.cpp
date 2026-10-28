@@ -135,11 +135,12 @@ static uint32_t hash_pixel(uint32_t x, uint32_t y, uint32_t seed) {
   v = (v ^ (v >> 13)) * 1274126177UL;
   return v ^ (v >> 16);
 }
-static void room_png_draw(PNGDRAW *line) {
-  if (!scene_pixels || line->y >= IMG_H) return;
+static int room_png_draw(PNGDRAW *line) {
+  if (!scene_pixels || line->y >= IMG_H) return 0;
   static uint16_t row[IMG_W];
   room_png_decoder.getLineAsRGB565(line, row, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
   memcpy(scene_pixels + line->y * IMG_W, row, IMG_W * sizeof(uint16_t));
+  return 1;
 }
 static int room_jpg_draw(JPEGDRAW *block) {
   if (!scene_pixels) return 0;
