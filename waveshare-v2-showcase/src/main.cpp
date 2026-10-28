@@ -32,7 +32,11 @@ static lv_obj_t *content;
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   const int w = a->x2 - a->x1 + 1;
   const int h = a->y2 - a->y1 + 1;
+  uint32_t start_us = micros();
   lcd->draw16bitRGBBitmap(a->x1, a->y1, reinterpret_cast<uint16_t *>(px), w, h);
+  flush_us += micros() - start_us;
+  flush_pixels += uint32_t(w) * h;
+  ++flush_calls;
   lv_display_flush_ready(d);
 }
 
@@ -72,9 +76,104 @@ static uint32_t diag_last = 0;
 static uint32_t diag_frames = 0;
 static int current_page = 0;
 
+
+static constexpr int IMG_W = 192, IMG_H = 160;
+static uint16_t *scene_pixels = nullptr;
+static lv_image_dsc_t scene_dsc = {};
+static lv_obj_t *scene_image = nullptr;
+static lv_obj_t *scene_stats = nullptr;
+static uint32_t flush_pixels = 0, flush_calls = 0, flush_us = 0;
+static uint32_t last_scene_ms = 0;
+static int scene_kind = 0, scene_detail = 0;
+
+static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return uint16_t((r & 0xf8) << 8) | uint16_t((g & 0xfc) << 3) | (b >> 3);
+}
+static void rect_pixels(int x0, int y0, int x1, int y1, uint16_t c) {
+  if (!scene_pixels) return;
+  if (x0 < 0) x0 = 0;
+  if (y0 < 0) y0 = 0;
+  if (x1 > IMG_W) x1 = IMG_W;
+  if (y1 > IMG_H) y1 = IMG_H;
+  for (int y = y0; y < y1; ++y)
+    for (int x = x0; x < x1; ++x) scene_pixels[y * IMG_W + x] = c;
+}
+static uint32_t hash_pixel(uint32_t x, uint32_t y, uint32_t seed) {
+  uint32_t v = x * 374761393UL + y * 668265263UL + seed * 2246822519UL;
+  v = (v ^ (v >> 13)) * 1274126177UL;
+  return v ^ (v >> 16);
+}
+static void render_scene(int kind, int detail) {
+  if (!scene_pixels) return;
+  const uint32_t started = micros();
+  uint8_t r = 0, g = 0, b = 0;
+  for (int y = 0; y < IMG_H; ++y) for (int x = 0; x < IMG_W; ++x) {
+    if (kind == 0) { r = y < 112 ? 108 : 84; g = y < 112 ? 96 : 69; b = y < 112 ? 85 : 58; }
+    if (kind == 1) { r = y < 112 ? 102 : 75; g = y < 112 ? 126 : 86; b = y < 112 ? 145 : 100; }
+    if (kind == 2) { r = y < 112 ? 221 : 156; g = y < 112 ? 207 : 137; b = y < 112 ? 175 : 107; }
+    if (kind == 3) { r = y < 105 ? 112 : 87; g = y < 105 ? 167 : 138; b = y < 105 ? 191 : 86; }
+    if (detail) {
+      uint32_t noise = hash_pixel(x, y, kind);
+      int delta = detail == 1 ? int(noise % 17) - 8 : int(noise % 97) - 48;
+      r = uint8_t(constrain(int(r) + delta, 0, 255));
+      g = uint8_t(constrain(int(g) + delta, 0, 255));
+      b = uint8_t(constrain(int(b) + delta, 0, 255));
+    }
+    scene_pixels[y * IMG_W + x] = rgb565(r, g, b);
+  }
+  if (kind == 0) { // Entertainment center: TV, console, speakers
+    rect_pixels(18, 32, 174, 112, rgb565(43, 35, 31));
+    rect_pixels(38, 39, 155, 100, rgb565(9, 18, 31));
+    rect_pixels(43, 44, 150, 95, rgb565(25, 55, 80));
+    rect_pixels(22, 116, 170, 130, rgb565(48, 30, 20));
+    rect_pixels(25, 53, 34, 108, rgb565(18, 17, 18));
+    rect_pixels(161, 53, 170, 108, rgb565(18, 17, 18));
+  } else if (kind == 1) { // Bedroom: window, bed, pillows
+    rect_pixels(17, 15, 76, 86, rgb565(225, 226, 217));
+    rect_pixels(23, 20, 70, 80, rgb565(97, 167, 198));
+    rect_pixels(83, 74, 178, 137, rgb565(74, 55, 68));
+    rect_pixels(88, 83, 173, 132, rgb565(202, 188, 175));
+    rect_pixels(91, 85, 128, 102, rgb565(240, 232, 214));
+    rect_pixels(132, 85, 169, 102, rgb565(240, 232, 214));
+  } else if (kind == 2) { // Kitchen: cabinets, backsplash, counter
+    rect_pixels(12, 18, 181, 65, rgb565(137, 91, 49));
+    for (int x = 17; x < 177; x += 40) rect_pixels(x, 22, x + 35, 59, rgb565(183, 138, 84));
+    rect_pixels(11, 90, 182, 102, rgb565(63, 66, 65));
+    rect_pixels(11, 102, 182, 150, rgb565(149, 101, 59));
+    rect_pixels(77, 68, 118, 91, rgb565(183, 188, 185));
+    rect_pixels(87, 73, 108, 85, rgb565(90, 95, 98));
+  } else { // Patio: sky, fence, planters, table
+    rect_pixels(0, 78, 192, 101, rgb565(102, 119, 79));
+    for (int x = 0; x < 192; x += 24) rect_pixels(x, 89, x + 19, 123, rgb565(132, 92, 61));
+    rect_pixels(38, 113, 155, 121, rgb565(64, 53, 42));
+    rect_pixels(85, 120, 94, 157, rgb565(64, 53, 42));
+    rect_pixels(15, 114, 39, 143, rgb565(107, 67, 42));
+    rect_pixels(19, 102, 35, 117, rgb565(35, 115, 55));
+    rect_pixels(157, 114, 180, 143, rgb565(107, 67, 42));
+    rect_pixels(160, 101, 178, 117, rgb565(35, 115, 55));
+  }
+  last_scene_ms = (micros() - started) / 1000;
+  if (scene_image) lv_obj_invalidate(scene_image);
+}
+static void update_scene_stats() {
+  if (!scene_stats) return;
+  lv_label_set_text_fmt(scene_stats,
+    "RGB565 %dx%d | %lu KB | Gen %lu ms\\nFlush %lu calls, %lu px, %lu us",
+    IMG_W, IMG_H, (unsigned long)(IMG_W * IMG_H * 2 / 1024),
+    (unsigned long)last_scene_ms, (unsigned long)flush_calls,
+    (unsigned long)flush_pixels, (unsigned long)flush_us);
+}
+static void select_scene(int kind) {
+  scene_kind = kind;
+  flush_calls = flush_pixels = flush_us = 0;
+  render_scene(scene_kind, scene_detail);
+  update_scene_stats();
+}
 static void show_page(int page) {
   current_page = page;
   diag_label = nullptr;
+  scene_image = nullptr;
+  scene_stats = nullptr;
   lv_obj_clean(content);
   if (page == 0) {
     lv_obj_t *label = lv_label_create(content);
@@ -170,6 +269,46 @@ static void show_page(int page) {
         Serial.printf("List selected: %s\\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
       }, LV_EVENT_CLICKED, nullptr);
     }
+  } else if (page == 4) {
+    lv_obj_t *label = lv_label_create(content);
+    lv_label_set_text(label, "Scene image benchmark");
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 1);
+    if (!scene_pixels) {
+      lv_obj_t *err = lv_label_create(content);
+      lv_label_set_text(err, "Image allocation failed");
+      lv_obj_center(err);
+    } else {
+      scene_image = lv_image_create(content);
+      lv_image_set_src(scene_image, &scene_dsc);
+      lv_obj_align(scene_image, LV_ALIGN_TOP_MID, 0, 24);
+      lv_obj_t *prev = lv_button_create(content);
+      lv_obj_set_size(prev, 49, 29);
+      lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 1, -35);
+      lv_obj_t *pl = lv_label_create(prev);
+      lv_label_set_text(pl, "<");
+      lv_obj_center(pl);
+      lv_obj_add_event_cb(prev, [](lv_event_t *) { select_scene((scene_kind + 3) % 4); }, LV_EVENT_CLICKED, nullptr);
+      lv_obj_t *next = lv_button_create(content);
+      lv_obj_set_size(next, 49, 29);
+      lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, -1, -35);
+      lv_obj_t *nl = lv_label_create(next);
+      lv_label_set_text(nl, ">");
+      lv_obj_center(nl);
+      lv_obj_add_event_cb(next, [](lv_event_t *) { select_scene((scene_kind + 1) % 4); }, LV_EVENT_CLICKED, nullptr);
+      lv_obj_t *detail = lv_dropdown_create(content);
+      lv_dropdown_set_options(detail, "Flat\\nTexture\\nNoise");
+      lv_obj_set_width(detail, 90);
+      lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -35);
+      lv_dropdown_set_selected(detail, scene_detail);
+      lv_obj_add_event_cb(detail, [](lv_event_t *e) {
+        scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+        select_scene(scene_kind);
+      }, LV_EVENT_VALUE_CHANGED, nullptr);
+      scene_stats = lv_label_create(content);
+      lv_obj_set_width(scene_stats, 200);
+      lv_obj_align(scene_stats, LV_ALIGN_BOTTOM_MID, 0, -1);
+      select_scene(scene_kind);
+    }
   } else {
     diag_label = lv_label_create(content);
     lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
@@ -222,8 +361,8 @@ void setup() {
   lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Diag"};
-  for (int i = 0; i < 5; ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "Diag"};
+  for (int i = 0; i < 6; ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
@@ -234,6 +373,17 @@ void setup() {
   content = lv_obj_create(root);
   lv_obj_set_width(content, LV_PCT(100));
   lv_obj_set_flex_grow(content, 1);
+  scene_pixels = static_cast<uint16_t *>(ps_malloc(IMG_W * IMG_H * sizeof(uint16_t)));
+  if (!scene_pixels) scene_pixels = static_cast<uint16_t *>(malloc(IMG_W * IMG_H * sizeof(uint16_t)));
+  if (scene_pixels) {
+    scene_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    scene_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+    scene_dsc.header.w = IMG_W;
+    scene_dsc.header.h = IMG_H;
+    scene_dsc.data_size = IMG_W * IMG_H * sizeof(uint16_t);
+    scene_dsc.data = reinterpret_cast<const uint8_t *>(scene_pixels);
+    render_scene(0, 0);
+  }
   show_page(0);
   last_tick = millis();
   Serial.printf("LVGL showcase initialized; touch enabled: %s\n", TOUCH_READY ? "yes" : "no");
