@@ -90,6 +90,9 @@ static lv_obj_t *previous_screen = nullptr;
 static bool swipe_tracking = false;
 static int swipe_start_x = 0, swipe_start_y = 0;
 static uint32_t swipe_start_ms = 0;
+static int swipe_last_axis = 0;
+static uint32_t swipe_last_axis_ms = 0;
+static int swipe_velocity_px_s = 0;
 static lv_obj_t *scene_title = nullptr;
 static lv_obj_t *scene_old_image = nullptr;
 static uint16_t *scene_old_pixels = nullptr;
@@ -279,11 +282,14 @@ static void scene_drag_position(int distance) {
     lv_obj_set_x(scene_image, sign * (distance - extent));
   }
 }
-static void scene_release_drag() {
+static void scene_release_drag(int velocity_px_s) {
   if (!drag_active || scene_animating) return;
   const int extent = transition_type == 2 ? HEIGHT : WIDTH;
   const int sign = drag_direction > 0 ? -1 : 1;
-  const bool commit = drag_distance >= extent * 35 / 100;
+  // A deliberate fast flick commits even when travel is below 35%.
+  // Velocity is signed in the direction of the intended page change.
+  const bool fast_flick = velocity_px_s >= 450 && drag_distance >= 12;
+  const bool commit = drag_distance >= extent * 35 / 100 || fast_flick;
   const int remaining = commit ? extent - drag_distance : drag_distance;
   const uint32_t duration = uint32_t(220) * remaining / extent + 45;
   const int old_end = commit ? sign * extent : 0;
@@ -589,6 +595,9 @@ void loop() {
       swipe_start_x = touch_x;
       swipe_start_y = touch_y;
       swipe_start_ms = now;
+      swipe_last_axis = transition_type == 2 ? touch_y : touch_x;
+      swipe_last_axis_ms = now;
+      swipe_velocity_px_s = 0;
     } else if (touch_pressed && swipe_tracking && drag_enabled &&
                (transition_type == 1 || transition_type == 2)) {
       const bool vertical = transition_type == 2;
@@ -597,6 +606,14 @@ void loop() {
       if (!drag_active && !scene_animating && swipe_start_y > 105 &&
           abs(delta) >= 12 && abs(delta) > abs(cross) * 3 / 2) {
         scene_prepare(delta < 0 ? 1 : -1);
+      }
+      const int axis = vertical ? touch_y : touch_x;
+      if (now > swipe_last_axis_ms && axis != swipe_last_axis) {
+        const int instantaneous = (axis - swipe_last_axis) * 1000 / int(now - swipe_last_axis_ms);
+        // Smooth the latest movement without requiring a long finger hold.
+        swipe_velocity_px_s = (swipe_velocity_px_s + instantaneous * 2) / 3;
+        swipe_last_axis = axis;
+        swipe_last_axis_ms = now;
       }
       if (drag_active) {
         const int intended_sign = drag_direction > 0 ? -1 : 1;
@@ -607,7 +624,12 @@ void loop() {
       int dy = int(touch_y) - swipe_start_y;
       uint32_t duration = now - swipe_start_ms;
       swipe_tracking = false;
-      if (drag_active) scene_release_drag();
+      if (drag_active) {
+        const int intended_sign = drag_direction > 0 ? -1 : 1;
+        int velocity = swipe_velocity_px_s * intended_sign;
+        // Fast short flicks can finish; reversing direction gives negative velocity.
+        scene_release_drag(velocity);
+      }
       else if (!scene_animating && duration < 1200 && swipe_start_y > 105) {
         if (transition_type == 2 && abs(dy) >= 45 && abs(dy) > abs(dx) * 3 / 2)
           full_scene_next(dy < 0 ? 1 : -1);
