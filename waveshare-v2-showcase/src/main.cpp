@@ -309,6 +309,7 @@ static void full_scene_next(int direction) {
   } else if (transition_type == 3) {
     // Fade OUT the old image above the new image, revealing it gradually.
     scene_animating = true;
+    lv_obj_move_to_index(scene_old_image, 1); // old image above new, controls stay above both
     lv_obj_set_style_opa(scene_old_image, LV_OPA_COVER, 0);
     scene_animate_obj(scene_old_image, 255, 0, 350, true, scene_anim_ready);
   } else {
