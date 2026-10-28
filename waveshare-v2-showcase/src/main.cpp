@@ -254,7 +254,7 @@ static void full_scene_next(int direction) {
       lv_anim_start(&anim);
     }
   }
-  Serial.printf("Scene %d: gen %lu ms, transition %d\\n", scene_kind, (unsigned long)last_scene_ms, transition_type);
+  Serial.printf("Scene %d: gen %lu ms, transition %d\n", scene_kind, (unsigned long)last_scene_ms, transition_type);
 }
 static void open_full_scene() {
   if (scene_overlay || !scene_pixels) return;
@@ -281,7 +281,7 @@ static void open_full_scene() {
   lv_obj_set_style_pad_all(scene_title, 5, 0);
   lv_obj_align(scene_title, LV_ALIGN_BOTTOM_MID, 0, -8);
   lv_obj_t *mode = lv_dropdown_create(scene_overlay);
-  lv_dropdown_set_options(mode, "Instant\\nSlide\\nFade");
+  lv_dropdown_set_options(mode, "Instant\nSlide\nFade");
   lv_obj_set_width(mode, 108);
   lv_obj_align(mode, LV_ALIGN_TOP_LEFT, 5, 6);
   lv_dropdown_set_selected(mode, transition_type);
