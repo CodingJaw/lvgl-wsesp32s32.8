@@ -603,7 +603,7 @@ void loop() {
       const bool vertical = transition_type == 2;
       int delta = vertical ? int(touch_y) - swipe_start_y : int(touch_x) - swipe_start_x;
       int cross = vertical ? int(touch_x) - swipe_start_x : int(touch_y) - swipe_start_y;
-      if (!drag_active && !scene_animating && swipe_start_y > 105 &&
+      if (!drag_active && !scene_animating && swipe_start_y > 88 &&
           abs(delta) >= 12 && abs(delta) > abs(cross) * 3 / 2) {
         scene_prepare(delta < 0 ? 1 : -1);
       }
@@ -630,7 +630,7 @@ void loop() {
         // Fast short flicks can finish; reversing direction gives negative velocity.
         scene_release_drag(velocity);
       }
-      else if (!scene_animating && duration < 1200 && swipe_start_y > 105) {
+      else if (!scene_animating && duration < 1200 && swipe_start_y > 88) {
         if (transition_type == 2 && abs(dy) >= 45 && abs(dy) > abs(dx) * 3 / 2)
           full_scene_next(dy < 0 ? 1 : -1);
         else if (transition_type != 2 && abs(dx) >= 45 && abs(dx) > abs(dy) * 3 / 2)
