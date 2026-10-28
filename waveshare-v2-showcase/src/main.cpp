@@ -91,6 +91,11 @@ static bool swipe_tracking = false;
 static int swipe_start_x = 0, swipe_start_y = 0;
 static uint32_t swipe_start_ms = 0;
 static lv_obj_t *scene_title = nullptr;
+static lv_obj_t *scene_old_image = nullptr;
+static uint16_t *scene_old_pixels = nullptr;
+static lv_image_dsc_t scene_old_dsc = {};
+static int transition_type = 0;
+static bool scene_animating = false;
 static uint32_t scene_switch_start = 0;
 
 static uint32_t last_scene_ms = 0;
@@ -183,16 +188,73 @@ static void close_scene_overlay() {
   swipe_tracking = false;
   scene_image = nullptr;
   scene_title = nullptr;
+  scene_old_image = nullptr;
+  scene_animating = false;
+}
+static void scene_anim_exec(void *obj, int32_t value) {
+  lv_obj_set_x(static_cast<lv_obj_t *>(obj), value);
+}
+static void scene_fade_exec(void *obj, int32_t value) {
+  lv_obj_set_style_opa(static_cast<lv_obj_t *>(obj), (lv_opa_t)value, 0);
+}
+static void scene_anim_ready(lv_anim_t *) {
+  if (scene_old_image) {
+    lv_obj_delete(scene_old_image);
+    scene_old_image = nullptr;
+  }
+  if (scene_image) {
+    lv_obj_set_x(scene_image, 0);
+    lv_obj_set_style_opa(scene_image, LV_OPA_COVER, 0);
+  }
+  scene_animating = false;
 }
 static void full_scene_next(int direction) {
+  if (scene_animating) return;
   scene_switch_start = millis();
+  bool animate = direction != 0 && transition_type != 0 && scene_old_pixels;
+  if (animate) {
+    memcpy(scene_old_pixels, scene_pixels, IMG_W * IMG_H * sizeof(uint16_t));
+    scene_old_image = lv_image_create(scene_overlay);
+    lv_image_set_src(scene_old_image, &scene_old_dsc);
+    lv_obj_set_pos(scene_old_image, 0, 0);
+    lv_obj_move_to_index(scene_old_image, 0);
+  }
   scene_kind = (scene_kind + direction + 4) % 4;
   render_scene(scene_kind, scene_detail);
   if (scene_title) {
     const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
     lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
   }
-  Serial.printf("Scene %d generated in %lu ms; pending LCD flush\n", scene_kind, (unsigned long)last_scene_ms);
+  if (animate) {
+    scene_animating = true;
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, scene_image);
+    lv_anim_set_duration(&anim, 280);
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+    lv_anim_set_ready_cb(&anim, scene_anim_ready);
+    if (transition_type == 1) {
+      int offset = direction > 0 ? WIDTH : -WIDTH;
+      lv_obj_set_x(scene_image, offset);
+      lv_anim_set_values(&anim, offset, 0);
+      lv_anim_set_exec_cb(&anim, scene_anim_exec);
+      lv_anim_start(&anim);
+      lv_anim_t old_anim;
+      lv_anim_init(&old_anim);
+      lv_anim_set_var(&old_anim, scene_old_image);
+      lv_anim_set_duration(&old_anim, 280);
+      lv_anim_set_path_cb(&old_anim, lv_anim_path_ease_in_out);
+      lv_anim_set_values(&old_anim, 0, -offset);
+      lv_anim_set_exec_cb(&old_anim, scene_anim_exec);
+      lv_anim_start(&old_anim);
+    } else {
+      lv_obj_set_style_opa(scene_image, LV_OPA_TRANSP, 0);
+      lv_anim_set_values(&anim, 0, 255);
+      lv_anim_set_exec_cb(&anim, scene_fade_exec);
+      lv_anim_start(&anim);
+    }
+  }
+  Serial.printf("Scene %d: gen %lu ms, transition %d\\n", scene_kind, (unsigned long)last_scene_ms, transition_type);
 }
 static void open_full_scene() {
   if (scene_overlay || !scene_pixels) return;
@@ -218,6 +280,14 @@ static void open_full_scene() {
   lv_obj_set_style_bg_opa(scene_title, LV_OPA_70, 0);
   lv_obj_set_style_pad_all(scene_title, 5, 0);
   lv_obj_align(scene_title, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_t *mode = lv_dropdown_create(scene_overlay);
+  lv_dropdown_set_options(mode, "Instant\\nSlide\\nFade");
+  lv_obj_set_width(mode, 108);
+  lv_obj_align(mode, LV_ALIGN_TOP_LEFT, 5, 6);
+  lv_dropdown_set_selected(mode, transition_type);
+  lv_obj_add_event_cb(mode, [](lv_event_t *e) {
+    transition_type = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+  }, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_t *exit_button = lv_button_create(scene_overlay);
   lv_obj_set_size(exit_button, 55, 31);
   lv_obj_align(exit_button, LV_ALIGN_TOP_RIGHT, -6, 6);
@@ -422,6 +492,11 @@ void setup() {
     scene_dsc.data_size = IMG_W * IMG_H * sizeof(uint16_t);
     scene_dsc.data = reinterpret_cast<const uint8_t *>(scene_pixels);
     render_scene(0, 0);
+  }
+  scene_old_pixels = static_cast<uint16_t *>(ps_malloc(IMG_W * IMG_H * sizeof(uint16_t)));
+  if (scene_old_pixels) {
+    scene_old_dsc = scene_dsc;
+    scene_old_dsc.data = reinterpret_cast<const uint8_t *>(scene_old_pixels);
   }
   show_page(0);
   last_tick = millis();
