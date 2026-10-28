@@ -60,9 +60,7 @@ static bool touch_read(uint8_t frame[9]) {
 }
 
 static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
-  // Faster samples while a finger is down; slower polling when idle.
-  const uint32_t touch_interval_ms = touch_pressed ? 8 : 16;
-  if (millis() - last_touch_poll >= touch_interval_ms) {
+  if (millis() - last_touch_poll >= 20) {
     last_touch_poll = millis();
     uint8_t frame[9] = {};
     bool ok = touch_read(frame);
@@ -654,10 +652,6 @@ void setup() {
   pointer = lv_indev_create();
   lv_indev_set_type(pointer, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(pointer, touch_cb);
-  // LVGL's default input timer can dominate gesture latency even if the
-  // CST3530 itself is polled quickly.
-  lv_timer_t *touch_timer = lv_indev_get_read_timer(pointer);
-  if (touch_timer) lv_timer_set_period(touch_timer, 8);
 
   lv_obj_t *root = lv_screen_active();
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
@@ -771,5 +765,5 @@ void loop() {
     diag_last = now;
     diag_frames = 0;
   }
-  delay(scene_screen && touch_pressed ? 1 : 5);
+  delay(5);
 }
