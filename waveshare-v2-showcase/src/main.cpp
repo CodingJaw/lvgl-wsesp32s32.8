@@ -2,6 +2,9 @@
 #include <Arduino_GFX_Library.h>
 #include <lvgl.h>
 #include <Wire.h>
+#include <PNGdec.h>
+#include <JPEGDEC.h>
+#include "room_photos.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -109,6 +112,11 @@ static uint32_t scene_switch_start = 0;
 
 static uint32_t last_scene_ms = 0;
 static int scene_kind = 0, scene_detail = 0;
+static int scene_format = 0;
+static uint32_t last_decode_ms = 0;
+static bool last_decode_ok = true;
+static PNG room_png_decoder;
+static JPEGDEC room_jpg_decoder;
 
 static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return uint16_t((r & 0xf8) << 8) | uint16_t((g & 0xfc) << 3) | (b >> 3);
@@ -127,8 +135,49 @@ static uint32_t hash_pixel(uint32_t x, uint32_t y, uint32_t seed) {
   v = (v ^ (v >> 13)) * 1274126177UL;
   return v ^ (v >> 16);
 }
+static void room_png_draw(PNGDRAW *line) {
+  if (!scene_pixels || line->y >= IMG_H) return;
+  static uint16_t row[IMG_W];
+  room_png_decoder.getLineAsRGB565(line, row, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+  memcpy(scene_pixels + line->y * IMG_W, row, IMG_W * sizeof(uint16_t));
+}
+static int room_jpg_draw(JPEGDRAW *block) {
+  if (!scene_pixels) return 0;
+  for (int y = 0; y < block->iHeight; ++y) {
+    int py = block->y + y;
+    if (py < 0 || py >= IMG_H) continue;
+    for (int x = 0; x < block->iWidth; ++x) {
+      int px = block->x + x;
+      if (px >= 0 && px < IMG_W)
+        scene_pixels[py * IMG_W + px] = block->pPixels[y * block->iWidth + x];
+    }
+  }
+  return 1;
+}
+static void decode_room_photo(int kind) {
+  const uint32_t started = millis();
+  last_decode_ok = false;
+  if (scene_format == 1) {
+    const RoomPhoto &asset = room_png[kind];
+    if (room_png_decoder.openRAM((uint8_t *)asset.data, asset.size, room_png_draw) == PNG_SUCCESS) {
+      last_decode_ok = room_png_decoder.decode(nullptr, 0) == PNG_SUCCESS;
+      room_png_decoder.close();
+    }
+  } else if (scene_format == 2) {
+    const RoomPhoto &asset = room_jpg[kind];
+    if (room_jpg_decoder.openRAM((uint8_t *)asset.data, asset.size, room_jpg_draw)) {
+      room_jpg_decoder.setPixelType(RGB565_LITTLE_ENDIAN);
+      last_decode_ok = room_jpg_decoder.decode(0, 0, 0);
+      room_jpg_decoder.close();
+    }
+  }
+  last_decode_ms = millis() - started;
+  last_scene_ms = last_decode_ms;
+  if (scene_image) lv_obj_invalidate(scene_image);
+}
 static void render_scene(int kind, int detail) {
   if (!scene_pixels) return;
+  if (scene_format != 0) { decode_room_photo(kind); return; }
   const uint32_t started = micros();
   uint8_t r = 0, g = 0, b = 0;
   for (int y = 0; y < IMG_H; ++y) for (int x = 0; x < IMG_W; ++x) {
@@ -211,7 +260,7 @@ static void scene_fade_exec(void *obj, int32_t value) {
 static void scene_update_title() {
   if (!scene_title) return;
   const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
-  lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
+  lv_label_set_text_fmt(scene_title, "%s | %s %lu ms", names[scene_kind], scene_format == 0 ? "Gen" : (last_decode_ok ? "Decode" : "Decode ERR"), (unsigned long)last_scene_ms);
 }
 static void scene_finish(bool commit) {
   if (scene_old_image) {
@@ -479,17 +528,19 @@ static void show_page(int page) {
         Serial.printf("List selected: %s\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
       }, LV_EVENT_CLICKED, nullptr);
     }
-  } else if (page == 4) {
+  } else if (page >= 4 && page <= 6) {
+    scene_format = page - 4;
     lv_obj_t *intro = lv_label_create(content);
-    lv_label_set_text(intro, "Full-screen room backgrounds\nSwipe left / right to switch\nExit returns to showcase");
+    lv_label_set_text(intro, scene_format == 0 ? "Generated RGB565 rooms\nSwipe to switch scenes" : (scene_format == 1 ? "Photographic PNG rooms\nDecoded on ESP32-S3" : "Photographic JPEG rooms\nDecoded on ESP32-S3"));
     lv_obj_align(intro, LV_ALIGN_TOP_MID, 0, 12);
     lv_obj_t *launch = lv_button_create(content);
     lv_obj_set_size(launch, 170, 48);
     lv_obj_align(launch, LV_ALIGN_CENTER, 0, 2);
     lv_obj_t *launch_label = lv_label_create(launch);
-    lv_label_set_text(launch_label, "Open scenes");
+    lv_label_set_text(launch_label, scene_format == 0 ? "Open scenes" : (scene_format == 1 ? "Open PNG scenes" : "Open JPEG scenes"));
     lv_obj_center(launch_label);
     lv_obj_add_event_cb(launch, [](lv_event_t *) { open_full_scene(); }, LV_EVENT_CLICKED, nullptr);
+    if (scene_format == 0) {
     lv_obj_t *detail = lv_dropdown_create(content);
     lv_dropdown_set_options(detail, "Flat\nTexture\nNoise");
     lv_obj_set_width(detail, 170);
@@ -498,6 +549,7 @@ static void show_page(int page) {
     lv_obj_add_event_cb(detail, [](lv_event_t *e) {
       scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
+    }
   } else {
     diag_label = lv_label_create(content);
     lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
@@ -550,8 +602,8 @@ void setup() {
   lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "Diag"};
-  for (int i = 0; i < 6; ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Diag"};
+  for (int i = 0; i < 8; ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
