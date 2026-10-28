@@ -209,7 +209,9 @@ void setup() {
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(root, 5, 0);
   lv_obj_t *nav = lv_obj_create(root);
-  lv_obj_set_size(nav, LV_PCT(100), 58);\n  lv_obj_add_flag(nav, LV_OBJ_FLAG_SCROLLABLE);\n  lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
+  lv_obj_set_size(nav, LV_PCT(100), 58);
+  lv_obj_add_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
   const char *names[] = {"Widgets", "Controls", "Chart", "List", "Diag"};
@@ -234,5 +236,19 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
+  ++diag_frames;
+  if (now - diag_last >= 1000) {
+    if (diag_label) {
+      const uint32_t elapsed = now - diag_last;
+      const uint32_t loops_per_second = elapsed ? diag_frames * 1000UL / elapsed : 0;
+      lv_label_set_text_fmt(diag_label,
+        "Waveshare 2.8 V2\nLVGL 9.2.2\nUptime: %lu s\nLoop: %lu/s\nHeap: %lu B\nPSRAM: %lu B\nTouch: %u, %u (%s)",
+        (unsigned long)(now / 1000), (unsigned long)loops_per_second,
+        (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getFreePsram(),
+        touch_x, touch_y, touch_pressed ? "down" : "up");
+    }
+    diag_last = now;
+    diag_frames = 0;
+  }
   delay(5);
 }
