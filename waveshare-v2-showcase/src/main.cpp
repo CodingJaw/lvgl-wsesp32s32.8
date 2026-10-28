@@ -96,6 +96,12 @@ static uint16_t *scene_old_pixels = nullptr;
 static lv_image_dsc_t scene_old_dsc = {};
 static int transition_type = 0;
 static bool scene_animating = false;
+static bool drag_active = false;
+static bool drag_enabled = false;
+static int drag_direction = 0;
+static int drag_distance = 0;
+static int drag_previous_kind = 0;
+static int drag_target_kind = 0;
 static uint32_t scene_switch_start = 0;
 
 static uint32_t last_scene_ms = 0;
@@ -190,71 +196,130 @@ static void close_scene_overlay() {
   scene_title = nullptr;
   scene_old_image = nullptr;
   scene_animating = false;
+  drag_active = false;
 }
 static void scene_anim_exec(void *obj, int32_t value) {
-  lv_obj_set_x(static_cast<lv_obj_t *>(obj), value);
+  if (transition_type == 2) lv_obj_set_y(static_cast<lv_obj_t *>(obj), value);
+  else lv_obj_set_x(static_cast<lv_obj_t *>(obj), value);
 }
 static void scene_fade_exec(void *obj, int32_t value) {
   lv_obj_set_style_opa(static_cast<lv_obj_t *>(obj), (lv_opa_t)value, 0);
 }
-static void scene_anim_ready(lv_anim_t *) {
+static void scene_update_title() {
+  if (!scene_title) return;
+  const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
+  lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
+}
+static void scene_finish(bool commit) {
   if (scene_old_image) {
+    lv_anim_delete(scene_old_image, nullptr);
     lv_obj_delete(scene_old_image);
     scene_old_image = nullptr;
   }
+  if (!commit && scene_old_pixels) {
+    memcpy(scene_pixels, scene_old_pixels, IMG_W * IMG_H * sizeof(uint16_t));
+    scene_kind = drag_previous_kind;
+    lv_obj_invalidate(scene_image);
+  }
   if (scene_image) {
-    lv_obj_set_x(scene_image, 0);
+    lv_obj_set_pos(scene_image, 0, 0);
     lv_obj_set_style_opa(scene_image, LV_OPA_COVER, 0);
   }
+  scene_update_title();
+  drag_active = false;
   scene_animating = false;
 }
-static void full_scene_next(int direction) {
-  if (scene_animating) return;
-  scene_switch_start = millis();
-  bool animate = direction != 0 && transition_type != 0 && scene_old_pixels;
-  if (animate) {
-    memcpy(scene_old_pixels, scene_pixels, IMG_W * IMG_H * sizeof(uint16_t));
-    scene_old_image = lv_image_create(scene_overlay);
-    lv_image_set_src(scene_old_image, &scene_old_dsc);
-    lv_obj_set_pos(scene_old_image, 0, 0);
-    lv_obj_move_to_index(scene_old_image, 0);
-  }
-  scene_kind = (scene_kind + direction + 4) % 4;
+static void scene_anim_ready(lv_anim_t *) {
+  scene_finish(true);
+}
+static void scene_cancel_ready(lv_anim_t *) {
+  scene_finish(false);
+}
+static void scene_animate_obj(lv_obj_t *obj, int from, int to, uint32_t duration,
+                              bool fade, lv_anim_ready_cb_t ready = nullptr) {
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_var(&anim, obj);
+  lv_anim_set_duration(&anim, duration);
+  lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+  lv_anim_set_values(&anim, from, to);
+  lv_anim_set_exec_cb(&anim, fade ? scene_fade_exec : scene_anim_exec);
+  if (ready) lv_anim_set_ready_cb(&anim, ready);
+  lv_anim_start(&anim);
+}
+static bool scene_prepare(int direction) {
+  if (scene_animating || drag_active || !scene_old_pixels) return false;
+  memcpy(scene_old_pixels, scene_pixels, IMG_W * IMG_H * sizeof(uint16_t));
+  drag_previous_kind = scene_kind;
+  drag_target_kind = (scene_kind + direction + 4) % 4;
+  scene_old_image = lv_image_create(scene_overlay);
+  lv_image_set_src(scene_old_image, &scene_old_dsc);
+  lv_obj_set_pos(scene_old_image, 0, 0);
+  lv_obj_move_to_index(scene_old_image, 0);
+  scene_kind = drag_target_kind;
   render_scene(scene_kind, scene_detail);
-  if (scene_title) {
-    const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
-    lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
+  scene_update_title();
+  drag_direction = direction;
+  drag_distance = 0;
+  drag_active = true;
+  return true;
+}
+static void scene_drag_position(int distance) {
+  if (!drag_active) return;
+  const bool vertical = transition_type == 2;
+  const int extent = vertical ? HEIGHT : WIDTH;
+  const int sign = drag_direction > 0 ? -1 : 1;
+  distance = constrain(distance, 0, extent);
+  drag_distance = distance;
+  if (vertical) {
+    lv_obj_set_y(scene_old_image, sign * distance);
+    lv_obj_set_y(scene_image, sign * (distance - extent));
+  } else {
+    lv_obj_set_x(scene_old_image, sign * distance);
+    lv_obj_set_x(scene_image, sign * (distance - extent));
   }
-  if (animate) {
+}
+static void scene_release_drag() {
+  if (!drag_active || scene_animating) return;
+  const int extent = transition_type == 2 ? HEIGHT : WIDTH;
+  const int sign = drag_direction > 0 ? -1 : 1;
+  const bool commit = drag_distance >= extent * 35 / 100;
+  const int remaining = commit ? extent - drag_distance : drag_distance;
+  const uint32_t duration = uint32_t(220) * remaining / extent + 45;
+  const int old_end = commit ? sign * extent : 0;
+  const int new_end = commit ? 0 : -sign * extent;
+  scene_animating = true;
+  // Start the old image first; the new image's completion callback performs cleanup.
+  scene_animate_obj(scene_old_image, sign * drag_distance, old_end, duration, false);
+  scene_animate_obj(scene_image, sign * (drag_distance - extent), new_end,
+                    duration, false, commit ? scene_anim_ready : scene_cancel_ready);
+}
+static void full_scene_next(int direction) {
+  if (scene_animating || drag_active) return;
+  if (direction == 0) { render_scene(scene_kind, scene_detail); scene_update_title(); return; }
+  if (!scene_old_pixels) {
+    scene_kind = (scene_kind + direction + 4) % 4;
+    render_scene(scene_kind, scene_detail);
+    scene_update_title();
+    return;
+  }
+  if (!scene_prepare(direction)) return;
+  if (transition_type == 0) {
+    scene_finish(true);
+  } else if (transition_type == 3) {
+    // Fade OUT the old image above the new image, revealing it gradually.
     scene_animating = true;
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, scene_image);
-    lv_anim_set_duration(&anim, 280);
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-    lv_anim_set_ready_cb(&anim, scene_anim_ready);
-    if (transition_type == 1) {
-      int offset = direction > 0 ? WIDTH : -WIDTH;
-      lv_obj_set_x(scene_image, offset);
-      lv_anim_set_values(&anim, offset, 0);
-      lv_anim_set_exec_cb(&anim, scene_anim_exec);
-      lv_anim_start(&anim);
-      lv_anim_t old_anim;
-      lv_anim_init(&old_anim);
-      lv_anim_set_var(&old_anim, scene_old_image);
-      lv_anim_set_duration(&old_anim, 280);
-      lv_anim_set_path_cb(&old_anim, lv_anim_path_ease_in_out);
-      lv_anim_set_values(&old_anim, 0, -offset);
-      lv_anim_set_exec_cb(&old_anim, scene_anim_exec);
-      lv_anim_start(&old_anim);
-    } else {
-      lv_obj_set_style_opa(scene_image, LV_OPA_TRANSP, 0);
-      lv_anim_set_values(&anim, 0, 255);
-      lv_anim_set_exec_cb(&anim, scene_fade_exec);
-      lv_anim_start(&anim);
-    }
+    lv_obj_set_style_opa(scene_old_image, LV_OPA_COVER, 0);
+    scene_animate_obj(scene_old_image, 255, 0, 350, true, scene_anim_ready);
+  } else {
+    const int extent = transition_type == 2 ? HEIGHT : WIDTH;
+    const int sign = direction > 0 ? -1 : 1;
+    scene_animating = true;
+    if (transition_type == 2) lv_obj_set_y(scene_image, -sign * extent);
+    else lv_obj_set_x(scene_image, -sign * extent);
+    scene_animate_obj(scene_old_image, 0, sign * extent, 320, false);
+    scene_animate_obj(scene_image, -sign * extent, 0, 320, false, scene_anim_ready);
   }
-  Serial.printf("Scene %d: gen %lu ms, transition %d\n", scene_kind, (unsigned long)last_scene_ms, transition_type);
 }
 static void open_full_scene() {
   if (scene_overlay || !scene_pixels) return;
@@ -281,12 +346,20 @@ static void open_full_scene() {
   lv_obj_set_style_pad_all(scene_title, 5, 0);
   lv_obj_align(scene_title, LV_ALIGN_BOTTOM_MID, 0, -8);
   lv_obj_t *mode = lv_dropdown_create(scene_overlay);
-  lv_dropdown_set_options(mode, "Instant\nSlide\nFade");
-  lv_obj_set_width(mode, 108);
+  lv_dropdown_set_options(mode, "Instant\nSlide horizontal\nSlide vertical\nFade");
+  lv_obj_set_width(mode, 123);
   lv_obj_align(mode, LV_ALIGN_TOP_LEFT, 5, 6);
   lv_dropdown_set_selected(mode, transition_type);
   lv_obj_add_event_cb(mode, [](lv_event_t *e) {
     transition_type = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+  }, LV_EVENT_VALUE_CHANGED, nullptr);
+  lv_obj_t *tracking = lv_dropdown_create(scene_overlay);
+  lv_dropdown_set_options(tracking, "Release swipe\nTrack finger");
+  lv_obj_set_width(tracking, 118);
+  lv_obj_align(tracking, LV_ALIGN_TOP_LEFT, 5, 51);
+  lv_dropdown_set_selected(tracking, drag_enabled ? 1 : 0);
+  lv_obj_add_event_cb(tracking, [](lv_event_t *e) {
+    drag_enabled = lv_dropdown_get_selected(lv_event_get_target_obj(e)) == 1;
   }, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_t *exit_button = lv_button_create(scene_overlay);
   lv_obj_set_size(exit_button, 55, 31);
@@ -508,21 +581,37 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
-  // Track raw touch coordinates, independent of LVGL gesture propagation.
+  // Track raw CST3530 coordinates, including motion back toward the start.
   if (scene_screen) {
-    if (touch_pressed && !swipe_tracking) {
+    if (touch_pressed && !swipe_tracking && !scene_animating) {
       swipe_tracking = true;
       swipe_start_x = touch_x;
       swipe_start_y = touch_y;
       swipe_start_ms = now;
+    } else if (touch_pressed && swipe_tracking && drag_enabled &&
+               (transition_type == 1 || transition_type == 2)) {
+      const bool vertical = transition_type == 2;
+      int delta = vertical ? int(touch_y) - swipe_start_y : int(touch_x) - swipe_start_x;
+      int cross = vertical ? int(touch_x) - swipe_start_x : int(touch_y) - swipe_start_y;
+      if (!drag_active && !scene_animating && swipe_start_y > 105 &&
+          abs(delta) >= 12 && abs(delta) > abs(cross) * 3 / 2) {
+        scene_prepare(delta < 0 ? 1 : -1);
+      }
+      if (drag_active) {
+        const int intended_sign = drag_direction > 0 ? -1 : 1;
+        scene_drag_position(delta * intended_sign);
+      }
     } else if (!touch_pressed && swipe_tracking) {
       int dx = int(touch_x) - swipe_start_x;
       int dy = int(touch_y) - swipe_start_y;
       uint32_t duration = now - swipe_start_ms;
       swipe_tracking = false;
-      if (duration < 1200 && abs(dx) >= 45 && abs(dx) > abs(dy) * 3 / 2 &&
-          swipe_start_y > 42) {
-        full_scene_next(dx < 0 ? 1 : -1);
+      if (drag_active) scene_release_drag();
+      else if (!scene_animating && duration < 1200 && swipe_start_y > 105) {
+        if (transition_type == 2 && abs(dy) >= 45 && abs(dy) > abs(dx) * 3 / 2)
+          full_scene_next(dy < 0 ? 1 : -1);
+        else if (transition_type != 2 && abs(dx) >= 45 && abs(dx) > abs(dy) * 3 / 2)
+          full_scene_next(dx < 0 ? 1 : -1);
       }
     }
   } else swipe_tracking = false;
