@@ -117,6 +117,11 @@ static uint32_t last_decode_ms = 0;
 static bool last_decode_ok = true;
 static PNG room_png_decoder;
 static JPEGDEC room_jpg_decoder;
+static bool photo_cache_enabled = false;
+static uint16_t *photo_cache[2][4] = {};
+static bool photo_cache_valid[2][4] = {};
+static constexpr size_t PHOTO_BYTES = IMG_W * IMG_H * sizeof(uint16_t);
+static bool last_scene_cached = false;
 
 static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return uint16_t((r & 0xf8) << 8) | uint16_t((g & 0xfc) << 3) | (b >> 3);
@@ -178,7 +183,29 @@ static void decode_room_photo(int kind) {
 }
 static void render_scene(int kind, int detail) {
   if (!scene_pixels) return;
-  if (scene_format != 0) { decode_room_photo(kind); return; }
+  last_scene_cached = false;
+  if (scene_format != 0) {
+    const int format = scene_format - 1;
+    if (photo_cache_enabled && photo_cache_valid[format][kind]) {
+      const uint32_t start = micros();
+      memcpy(scene_pixels, photo_cache[format][kind], PHOTO_BYTES);
+      last_scene_ms = (micros() - start + 999) / 1000;
+      last_decode_ok = true;
+      last_scene_cached = true;
+      if (scene_image) lv_obj_invalidate(scene_image);
+      return;
+    }
+    decode_room_photo(kind);
+    if (photo_cache_enabled && last_decode_ok) {
+      if (!photo_cache[format][kind])
+        photo_cache[format][kind] = static_cast<uint16_t *>(ps_malloc(PHOTO_BYTES));
+      if (photo_cache[format][kind]) {
+        memcpy(photo_cache[format][kind], scene_pixels, PHOTO_BYTES);
+        photo_cache_valid[format][kind] = true;
+      } else Serial.printf("[CACHE] Allocation failed: %d/%d\n", format, kind);
+    }
+    return;
+  }
   const uint32_t started = micros();
   uint8_t r = 0, g = 0, b = 0;
   for (int y = 0; y < IMG_H; ++y) for (int x = 0; x < IMG_W; ++x) {
@@ -261,7 +288,7 @@ static void scene_fade_exec(void *obj, int32_t value) {
 static void scene_update_title() {
   if (!scene_title) return;
   const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
-  lv_label_set_text_fmt(scene_title, "%s | %s %lu ms", names[scene_kind], scene_format == 0 ? "Gen" : (last_decode_ok ? "Decode" : "Decode ERR"), (unsigned long)last_scene_ms);
+  lv_label_set_text_fmt(scene_title, "%s | %s %lu ms", names[scene_kind], scene_format == 0 ? "Gen" : (last_scene_cached ? "Cache" : (last_decode_ok ? "Decode" : "Decode ERR")), (unsigned long)last_scene_ms);
 }
 static void scene_finish(bool commit) {
   if (scene_old_image) {
@@ -378,6 +405,23 @@ static void full_scene_next(int direction) {
     scene_animate_obj(scene_image, -sign * extent, 0, 320, false, scene_anim_ready);
   }
 }
+static void preload_room_cache() {
+  if (!photo_cache_enabled || scene_format == 0 || !scene_pixels) return;
+  const int original_kind = scene_kind;
+  const int format = scene_format - 1;
+  const uint32_t start = millis();
+  int loaded = 0;
+  for (int kind = 0; kind < 4; ++kind) {
+    if (!photo_cache_valid[format][kind]) {
+      render_scene(kind, scene_detail);
+      if (photo_cache_valid[format][kind]) ++loaded;
+    }
+  }
+  render_scene(original_kind, scene_detail);
+  Serial.printf("[CACHE] %s: %d decoded in %lu ms; free PSRAM %lu\n",
+    scene_format == 1 ? "PNG" : "JPEG", loaded,
+    (unsigned long)(millis() - start), (unsigned long)ESP.getFreePsram());
+}
 static void open_full_scene() {
   if (scene_overlay || !scene_pixels) return;
   previous_screen = lv_screen_active();
@@ -426,6 +470,8 @@ static void open_full_scene() {
   lv_obj_center(exit_label);
   lv_obj_add_event_cb(exit_button, [](lv_event_t *) { close_scene_overlay(); }, LV_EVENT_CLICKED, nullptr);
   full_scene_next(0);
+  preload_room_cache();
+  scene_update_title();
   lv_screen_load(scene_screen);
 }
 static void show_page(int page) {
@@ -541,6 +587,16 @@ static void show_page(int page) {
     lv_label_set_text(launch_label, scene_format == 0 ? "Open scenes" : (scene_format == 1 ? "Open PNG scenes" : "Open JPEG scenes"));
     lv_obj_center(launch_label);
     lv_obj_add_event_cb(launch, [](lv_event_t *) { open_full_scene(); }, LV_EVENT_CLICKED, nullptr);
+    if (scene_format != 0) {
+      lv_obj_t *cache_mode = lv_dropdown_create(content);
+      lv_dropdown_set_options(cache_mode, "Decode each swipe\nCache in PSRAM");
+      lv_obj_set_width(cache_mode, 190);
+      lv_obj_align(cache_mode, LV_ALIGN_BOTTOM_MID, 0, -12);
+      lv_dropdown_set_selected(cache_mode, photo_cache_enabled ? 1 : 0);
+      lv_obj_add_event_cb(cache_mode, [](lv_event_t *e) {
+        photo_cache_enabled = lv_dropdown_get_selected(lv_event_get_target_obj(e)) == 1;
+      }, LV_EVENT_VALUE_CHANGED, nullptr);
+    }
     if (scene_format == 0) {
     lv_obj_t *detail = lv_dropdown_create(content);
     lv_dropdown_set_options(detail, "Flat\nTexture\nNoise");
