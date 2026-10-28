@@ -84,10 +84,42 @@ static void show_page(int page) {
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 8);
     lv_obj_t *bar = lv_bar_create(content);
     lv_obj_set_width(bar, 180);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 45);
     lv_bar_set_value(bar, 65, LV_ANIM_OFF);
+
+    lv_obj_t *slider = lv_slider_create(content);
+    lv_obj_set_width(slider, 180);
+    lv_obj_align(slider, LV_ALIGN_TOP_MID, 0, 80);
+    lv_slider_set_value(slider, 65, LV_ANIM_OFF);
+    lv_obj_add_event_cb(slider, [](lv_event_t *e) {
+      auto *source = lv_event_get_target_obj(e);
+      auto *target = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
+      lv_bar_set_value(target, lv_slider_get_value(source), LV_ANIM_OFF);
+    }, LV_EVENT_VALUE_CHANGED, bar);
+
     lv_obj_t *spin = lv_spinner_create(content);
-    lv_obj_align(spin, LV_ALIGN_CENTER, 0, 45);
+    lv_obj_set_size(spin, 36, 36);
+    lv_obj_align(spin, LV_ALIGN_TOP_MID, 0, 119);
+    lv_obj_t *toggle = lv_button_create(content);
+    lv_obj_set_size(toggle, 96, 34);
+    lv_obj_align(toggle, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_t *toggle_label = lv_label_create(toggle);
+    lv_label_set_text(toggle_label, "Stop");
+    lv_obj_center(toggle_label);
+    lv_obj_add_event_cb(toggle, [](lv_event_t *e) {
+      auto *button = lv_event_get_target_obj(e);
+      auto *spinner = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
+      bool running = !lv_obj_has_state(button, LV_STATE_CHECKED);
+      if (running) {
+        lv_obj_add_state(button, LV_STATE_CHECKED);
+        lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_remove_state(button, LV_STATE_CHECKED);
+        lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+      }
+      lv_obj_t *label = lv_obj_get_child(button, 0);
+      lv_label_set_text(label, running ? "Start" : "Stop");
+    }, LV_EVENT_CLICKED, spin);
   } else {
     lv_obj_t *label = lv_label_create(content);
     lv_label_set_text(label, "LVGL 9 Showcase\nWaveshare 2.8 V2\nST7789 240x320\nCST3530 touch enabled");
