@@ -122,6 +122,25 @@ static uint16_t *photo_cache[2][4] = {};
 static bool photo_cache_valid[2][4] = {};
 static constexpr size_t PHOTO_BYTES = IMG_W * IMG_H * sizeof(uint16_t);
 static bool last_scene_cached = false;
+// 0=decode, 1=PSRAM copy, 2=direct PSRAM image descriptor.
+static uint8_t photo_display_mode = 1;
+static lv_image_dsc_t photo_direct_dsc[2][4] = {};
+static bool scene_using_direct = false;
+static bool scene_old_using_direct = false;
+static int scene_old_direct_kind = 0;
+static bool direct_ready(int kind) {
+  return scene_format > 0 && photo_display_mode == 2 &&
+         photo_cache_valid[scene_format - 1][kind];
+}
+static const lv_image_dsc_t *direct_descriptor(int kind) {
+  return &photo_direct_dsc[scene_format - 1][kind];
+}
+static void bind_scene_image(int kind) {
+  if (!scene_image) return;
+  const bool direct = direct_ready(kind);
+  lv_image_set_src(scene_image, direct ? direct_descriptor(kind) : &scene_dsc);
+  scene_using_direct = direct;
+}
 
 static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return uint16_t((r & 0xf8) << 8) | uint16_t((g & 0xfc) << 3) | (b >> 3);
@@ -184,6 +203,13 @@ static void decode_room_photo(int kind) {
 static void render_scene(int kind, int detail) {
   if (!scene_pixels) return;
   last_scene_cached = false;
+  if (direct_ready(kind)) {
+    last_scene_ms = 0; // Descriptor switch; LCD flush measured separately.
+    last_decode_ok = true;
+    last_scene_cached = true;
+    bind_scene_image(kind);
+    return;
+  }
   if (scene_format != 0) {
     const int format = scene_format - 1;
     if (photo_cache_enabled && photo_cache_valid[format][kind]) {
@@ -202,6 +228,9 @@ static void render_scene(int kind, int detail) {
       if (photo_cache[format][kind]) {
         memcpy(photo_cache[format][kind], scene_pixels, PHOTO_BYTES);
         photo_cache_valid[format][kind] = true;
+        photo_direct_dsc[format][kind] = scene_dsc;
+        photo_direct_dsc[format][kind].data =
+            reinterpret_cast<const uint8_t *>(photo_cache[format][kind]);
       } else Serial.printf("[CACHE] Allocation failed: %d/%d\n", format, kind);
     }
     return;
@@ -273,6 +302,7 @@ static void close_scene_overlay() {
   scene_overlay = nullptr;
   swipe_tracking = false;
   scene_image = nullptr;
+  scene_using_direct = false;
   scene_title = nullptr;
   scene_old_image = nullptr;
   scene_animating = false;
@@ -288,7 +318,7 @@ static void scene_fade_exec(void *obj, int32_t value) {
 static void scene_update_title() {
   if (!scene_title) return;
   const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
-  lv_label_set_text_fmt(scene_title, "%s | %s %lu ms", names[scene_kind], scene_format == 0 ? "Gen" : (last_scene_cached ? "Cache" : (last_decode_ok ? "Decode" : "Decode ERR")), (unsigned long)last_scene_ms);
+  lv_label_set_text_fmt(scene_title, "%s | %s %lu ms", names[scene_kind], scene_format == 0 ? "Gen" : (scene_using_direct ? "Direct" : (last_scene_cached ? "Cache" : (last_decode_ok ? "Decode" : "Decode ERR"))), (unsigned long)last_scene_ms);
 }
 static void scene_finish(bool commit) {
   if (scene_old_image) {
@@ -296,10 +326,15 @@ static void scene_finish(bool commit) {
     lv_obj_delete(scene_old_image);
     scene_old_image = nullptr;
   }
-  if (!commit && scene_old_pixels) {
-    memcpy(scene_pixels, scene_old_pixels, IMG_W * IMG_H * sizeof(uint16_t));
+  if (!commit) {
     scene_kind = drag_previous_kind;
-    lv_obj_invalidate(scene_image);
+    if (scene_old_using_direct) {
+      bind_scene_image(scene_kind);
+    } else if (scene_old_pixels) {
+      memcpy(scene_pixels, scene_old_pixels, PHOTO_BYTES);
+      bind_scene_image(scene_kind);
+      lv_obj_invalidate(scene_image);
+    }
   }
   if (scene_image) {
     lv_obj_set_pos(scene_image, 0, 0);
@@ -329,15 +364,19 @@ static void scene_animate_obj(lv_obj_t *obj, int from, int to, uint32_t duration
 }
 static bool scene_prepare(int direction) {
   if (scene_animating || drag_active || !scene_old_pixels) return false;
-  memcpy(scene_old_pixels, scene_pixels, IMG_W * IMG_H * sizeof(uint16_t));
+  scene_old_using_direct = scene_using_direct && direct_ready(scene_kind);
+  scene_old_direct_kind = scene_kind;
+  if (!scene_old_using_direct) memcpy(scene_old_pixels, scene_pixels, PHOTO_BYTES);
   drag_previous_kind = scene_kind;
   drag_target_kind = (scene_kind + direction + 4) % 4;
   scene_old_image = lv_image_create(scene_overlay);
-  lv_image_set_src(scene_old_image, &scene_old_dsc);
+  lv_image_set_src(scene_old_image, scene_old_using_direct ?
+                   direct_descriptor(scene_old_direct_kind) : &scene_old_dsc);
   lv_obj_set_pos(scene_old_image, 0, 0);
   lv_obj_move_to_index(scene_old_image, 0);
   scene_kind = drag_target_kind;
   render_scene(scene_kind, scene_detail);
+  bind_scene_image(scene_kind);
   scene_update_title();
   drag_direction = direction;
   drag_distance = 0;
@@ -409,7 +448,7 @@ static void full_scene_next(int direction) {
   }
 }
 static void preload_room_cache() {
-  if (!photo_cache_enabled || scene_format == 0 || !scene_pixels) return;
+  if ((!photo_cache_enabled && photo_display_mode != 2) || scene_format == 0 || !scene_pixels) return;
   const int original_kind = scene_kind;
   const int format = scene_format - 1;
   const uint32_t start = millis();
@@ -421,6 +460,7 @@ static void preload_room_cache() {
     }
   }
   render_scene(original_kind, scene_detail);
+  bind_scene_image(original_kind);
   Serial.printf("[CACHE] %s: %d decoded in %lu ms; free PSRAM %lu\n",
     scene_format == 1 ? "PNG" : "JPEG", loaded,
     (unsigned long)(millis() - start), (unsigned long)ESP.getFreePsram());
@@ -472,8 +512,10 @@ static void open_full_scene() {
   lv_label_set_text(exit_label, "Exit");
   lv_obj_center(exit_label);
   lv_obj_add_event_cb(exit_button, [](lv_event_t *) { close_scene_overlay(); }, LV_EVENT_CLICKED, nullptr);
-  full_scene_next(0);
+  // Decode and cache before binding a direct PSRAM image.
   preload_room_cache();
+  full_scene_next(0);
+  bind_scene_image(scene_kind);
   scene_update_title();
   lv_screen_load(scene_screen);
 }
@@ -592,12 +634,13 @@ static void show_page(int page) {
     lv_obj_add_event_cb(launch, [](lv_event_t *) { open_full_scene(); }, LV_EVENT_CLICKED, nullptr);
     if (scene_format != 0) {
       lv_obj_t *cache_mode = lv_dropdown_create(content);
-      lv_dropdown_set_options(cache_mode, "Decode each swipe\nCache in PSRAM");
+      lv_dropdown_set_options(cache_mode, "Decode each swipe\nPSRAM copy (7ms)\nDirect PSRAM image");
       lv_obj_set_width(cache_mode, 190);
       lv_obj_align(cache_mode, LV_ALIGN_BOTTOM_MID, 0, -12);
-      lv_dropdown_set_selected(cache_mode, photo_cache_enabled ? 1 : 0);
+      lv_dropdown_set_selected(cache_mode, photo_display_mode);
       lv_obj_add_event_cb(cache_mode, [](lv_event_t *e) {
-        photo_cache_enabled = lv_dropdown_get_selected(lv_event_get_target_obj(e)) == 1;
+        photo_display_mode = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+        photo_cache_enabled = photo_display_mode != 0;
       }, LV_EVENT_VALUE_CHANGED, nullptr);
     }
     if (scene_format == 0) {
