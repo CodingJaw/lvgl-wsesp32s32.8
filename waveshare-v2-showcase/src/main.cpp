@@ -85,6 +85,11 @@ static lv_image_dsc_t scene_dsc = {};
 static lv_obj_t *scene_image = nullptr;
 static lv_obj_t *scene_stats = nullptr;
 static lv_obj_t *scene_overlay = nullptr;
+static lv_obj_t *scene_screen = nullptr;
+static lv_obj_t *previous_screen = nullptr;
+static bool swipe_tracking = false;
+static int swipe_start_x = 0, swipe_start_y = 0;
+static uint32_t swipe_start_ms = 0;
 static lv_obj_t *scene_title = nullptr;
 static uint32_t scene_switch_start = 0;
 
@@ -170,8 +175,12 @@ static void update_scene_stats() {
 }
 static void close_scene_overlay() {
   if (!scene_overlay) return;
-  lv_obj_delete(scene_overlay);
+  lv_screen_load(previous_screen);
+  lv_obj_delete(scene_screen);
+  scene_screen = nullptr;
+  previous_screen = nullptr;
   scene_overlay = nullptr;
+  swipe_tracking = false;
   scene_image = nullptr;
   scene_title = nullptr;
 }
@@ -185,15 +194,13 @@ static void full_scene_next(int direction) {
   }
   Serial.printf("Scene %d generated in %lu ms; pending LCD flush\n", scene_kind, (unsigned long)last_scene_ms);
 }
-static void scene_gesture_cb(lv_event_t *e) {
-  if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
-  lv_dir_t direction = lv_indev_get_gesture_dir(lv_indev_active());
-  if (direction == LV_DIR_LEFT) full_scene_next(1);
-  else if (direction == LV_DIR_RIGHT) full_scene_next(-1);
-}
 static void open_full_scene() {
   if (scene_overlay || !scene_pixels) return;
-  scene_overlay = lv_obj_create(lv_screen_active());
+  previous_screen = lv_screen_active();
+  scene_screen = lv_obj_create(nullptr);
+  lv_obj_set_style_pad_all(scene_screen, 0, 0);
+  lv_obj_set_style_border_width(scene_screen, 0, 0);
+  scene_overlay = lv_obj_create(scene_screen);
   lv_obj_set_size(scene_overlay, WIDTH, HEIGHT);
   lv_obj_set_pos(scene_overlay, 0, 0);
   lv_obj_set_style_pad_all(scene_overlay, 0, 0);
@@ -205,8 +212,6 @@ static void open_full_scene() {
   lv_image_set_src(scene_image, &scene_dsc);
   lv_obj_set_pos(scene_image, 0, 0);
   lv_obj_add_flag(scene_image, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(scene_image, scene_gesture_cb, LV_EVENT_GESTURE, nullptr);
-  lv_obj_add_event_cb(scene_overlay, scene_gesture_cb, LV_EVENT_GESTURE, nullptr);
   scene_title = lv_label_create(scene_overlay);
   lv_obj_set_style_text_color(scene_title, lv_color_white(), 0);
   lv_obj_set_style_bg_color(scene_title, lv_color_black(), 0);
@@ -221,6 +226,7 @@ static void open_full_scene() {
   lv_obj_center(exit_label);
   lv_obj_add_event_cb(exit_button, [](lv_event_t *) { close_scene_overlay(); }, LV_EVENT_CLICKED, nullptr);
   full_scene_next(0);
+  lv_screen_load(scene_screen);
 }
 static void show_page(int page) {
   close_scene_overlay();
@@ -427,6 +433,24 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
+  // Track raw touch coordinates, independent of LVGL gesture propagation.
+  if (scene_screen) {
+    if (touch_pressed && !swipe_tracking) {
+      swipe_tracking = true;
+      swipe_start_x = touch_x;
+      swipe_start_y = touch_y;
+      swipe_start_ms = now;
+    } else if (!touch_pressed && swipe_tracking) {
+      int dx = int(touch_x) - swipe_start_x;
+      int dy = int(touch_y) - swipe_start_y;
+      uint32_t duration = now - swipe_start_ms;
+      swipe_tracking = false;
+      if (duration < 1200 && abs(dx) >= 45 && abs(dx) > abs(dy) * 3 / 2 &&
+          swipe_start_y > 42) {
+        full_scene_next(dx < 0 ? 1 : -1);
+      }
+    }
+  } else swipe_tracking = false;
   ++diag_frames;
   if (now - diag_last >= 1000) {
     if (diag_label) {
