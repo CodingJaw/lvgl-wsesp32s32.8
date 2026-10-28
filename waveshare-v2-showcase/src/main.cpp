@@ -79,11 +79,14 @@ static uint32_t diag_frames = 0;
 static int current_page = 0;
 
 
-static constexpr int IMG_W = 192, IMG_H = 160;
+static constexpr int IMG_W = WIDTH, IMG_H = HEIGHT;
 static uint16_t *scene_pixels = nullptr;
 static lv_image_dsc_t scene_dsc = {};
 static lv_obj_t *scene_image = nullptr;
 static lv_obj_t *scene_stats = nullptr;
+static lv_obj_t *scene_overlay = nullptr;
+static lv_obj_t *scene_title = nullptr;
+static uint32_t scene_switch_start = 0;
 
 static uint32_t last_scene_ms = 0;
 static int scene_kind = 0, scene_detail = 0;
@@ -110,10 +113,10 @@ static void render_scene(int kind, int detail) {
   const uint32_t started = micros();
   uint8_t r = 0, g = 0, b = 0;
   for (int y = 0; y < IMG_H; ++y) for (int x = 0; x < IMG_W; ++x) {
-    if (kind == 0) { r = y < 112 ? 108 : 84; g = y < 112 ? 96 : 69; b = y < 112 ? 85 : 58; }
-    if (kind == 1) { r = y < 112 ? 102 : 75; g = y < 112 ? 126 : 86; b = y < 112 ? 145 : 100; }
-    if (kind == 2) { r = y < 112 ? 221 : 156; g = y < 112 ? 207 : 137; b = y < 112 ? 175 : 107; }
-    if (kind == 3) { r = y < 105 ? 112 : 87; g = y < 105 ? 167 : 138; b = y < 105 ? 191 : 86; }
+    if (kind == 0) { r = y < 224 ? 108 : 84; g = y < 224 ? 96 : 69; b = y < 224 ? 85 : 58; }
+    if (kind == 1) { r = y < 224 ? 102 : 75; g = y < 224 ? 126 : 86; b = y < 224 ? 145 : 100; }
+    if (kind == 2) { r = y < 224 ? 221 : 156; g = y < 224 ? 207 : 137; b = y < 224 ? 175 : 107; }
+    if (kind == 3) { r = y < 210 ? 112 : 87; g = y < 210 ? 167 : 138; b = y < 210 ? 191 : 86; }
     if (detail) {
       uint32_t noise = hash_pixel(x, y, kind);
       int delta = detail == 1 ? int(noise % 17) - 8 : int(noise % 97) - 48;
@@ -171,7 +174,62 @@ static void select_scene(int kind) {
   render_scene(scene_kind, scene_detail);
   update_scene_stats();
 }
+static void close_scene_overlay() {
+  if (!scene_overlay) return;
+  lv_obj_delete(scene_overlay);
+  scene_overlay = nullptr;
+  scene_image = nullptr;
+  scene_title = nullptr;
+}
+static void full_scene_next(int direction) {
+  scene_switch_start = millis();
+  scene_kind = (scene_kind + direction + 4) % 4;
+  render_scene(scene_kind, scene_detail);
+  if (scene_title) {
+    const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
+    lv_label_set_text_fmt(scene_title, "%s | Gen %lu ms", names[scene_kind], (unsigned long)last_scene_ms);
+  }
+  Serial.printf("Scene %d generated in %lu ms; pending LCD flush\\n", scene_kind, (unsigned long)last_scene_ms);
+}
+static void scene_gesture_cb(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+  lv_dir_t direction = lv_indev_get_gesture_dir(lv_indev_active());
+  if (direction == LV_DIR_LEFT) full_scene_next(1);
+  else if (direction == LV_DIR_RIGHT) full_scene_next(-1);
+}
+static void open_full_scene() {
+  if (scene_overlay || !scene_pixels) return;
+  scene_overlay = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(scene_overlay, WIDTH, HEIGHT);
+  lv_obj_set_pos(scene_overlay, 0, 0);
+  lv_obj_set_style_pad_all(scene_overlay, 0, 0);
+  lv_obj_set_style_border_width(scene_overlay, 0, 0);
+  lv_obj_set_style_radius(scene_overlay, 0, 0);
+  lv_obj_remove_flag(scene_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(scene_overlay, LV_OBJ_FLAG_CLICKABLE);
+  scene_image = lv_image_create(scene_overlay);
+  lv_image_set_src(scene_image, &scene_dsc);
+  lv_obj_set_pos(scene_image, 0, 0);
+  lv_obj_add_flag(scene_image, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(scene_image, scene_gesture_cb, LV_EVENT_GESTURE, nullptr);
+  lv_obj_add_event_cb(scene_overlay, scene_gesture_cb, LV_EVENT_GESTURE, nullptr);
+  scene_title = lv_label_create(scene_overlay);
+  lv_obj_set_style_text_color(scene_title, lv_color_white(), 0);
+  lv_obj_set_style_bg_color(scene_title, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(scene_title, LV_OPA_70, 0);
+  lv_obj_set_style_pad_all(scene_title, 5, 0);
+  lv_obj_align(scene_title, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_t *exit_button = lv_button_create(scene_overlay);
+  lv_obj_set_size(exit_button, 55, 31);
+  lv_obj_align(exit_button, LV_ALIGN_TOP_RIGHT, -6, 6);
+  lv_obj_t *exit_label = lv_label_create(exit_button);
+  lv_label_set_text(exit_label, "Exit");
+  lv_obj_center(exit_label);
+  lv_obj_add_event_cb(exit_button, [](lv_event_t *) { close_scene_overlay(); }, LV_EVENT_CLICKED, nullptr);
+  full_scene_next(0);
+}
 static void show_page(int page) {
+  close_scene_overlay();
   current_page = page;
   diag_label = nullptr;
   scene_image = nullptr;
@@ -272,45 +330,24 @@ static void show_page(int page) {
       }, LV_EVENT_CLICKED, nullptr);
     }
   } else if (page == 4) {
-    lv_obj_t *label = lv_label_create(content);
-    lv_label_set_text(label, "Scene image benchmark");
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 1);
-    if (!scene_pixels) {
-      lv_obj_t *err = lv_label_create(content);
-      lv_label_set_text(err, "Image allocation failed");
-      lv_obj_center(err);
-    } else {
-      scene_image = lv_image_create(content);
-      lv_image_set_src(scene_image, &scene_dsc);
-      lv_obj_align(scene_image, LV_ALIGN_TOP_MID, 0, 24);
-      lv_obj_t *prev = lv_button_create(content);
-      lv_obj_set_size(prev, 49, 29);
-      lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 1, -35);
-      lv_obj_t *pl = lv_label_create(prev);
-      lv_label_set_text(pl, "<");
-      lv_obj_center(pl);
-      lv_obj_add_event_cb(prev, [](lv_event_t *) { select_scene((scene_kind + 3) % 4); }, LV_EVENT_CLICKED, nullptr);
-      lv_obj_t *next = lv_button_create(content);
-      lv_obj_set_size(next, 49, 29);
-      lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, -1, -35);
-      lv_obj_t *nl = lv_label_create(next);
-      lv_label_set_text(nl, ">");
-      lv_obj_center(nl);
-      lv_obj_add_event_cb(next, [](lv_event_t *) { select_scene((scene_kind + 1) % 4); }, LV_EVENT_CLICKED, nullptr);
-      lv_obj_t *detail = lv_dropdown_create(content);
-      lv_dropdown_set_options(detail, "Flat\nTexture\nNoise");
-      lv_obj_set_width(detail, 90);
-      lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -35);
-      lv_dropdown_set_selected(detail, scene_detail);
-      lv_obj_add_event_cb(detail, [](lv_event_t *e) {
-        scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
-        select_scene(scene_kind);
-      }, LV_EVENT_VALUE_CHANGED, nullptr);
-      scene_stats = lv_label_create(content);
-      lv_obj_set_width(scene_stats, 200);
-      lv_obj_align(scene_stats, LV_ALIGN_BOTTOM_MID, 0, -1);
-      select_scene(scene_kind);
-    }
+    lv_obj_t *intro = lv_label_create(content);
+    lv_label_set_text(intro, "Full-screen room backgrounds\\nSwipe left / right to switch\\nExit returns to showcase");
+    lv_obj_align(intro, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_t *launch = lv_button_create(content);
+    lv_obj_set_size(launch, 170, 48);
+    lv_obj_align(launch, LV_ALIGN_CENTER, 0, 2);
+    lv_obj_t *launch_label = lv_label_create(launch);
+    lv_label_set_text(launch_label, "Open scenes");
+    lv_obj_center(launch_label);
+    lv_obj_add_event_cb(launch, [](lv_event_t *) { open_full_scene(); }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *detail = lv_dropdown_create(content);
+    lv_dropdown_set_options(detail, "Flat\\nTexture\\nNoise");
+    lv_obj_set_width(detail, 170);
+    lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_dropdown_set_selected(detail, scene_detail);
+    lv_obj_add_event_cb(detail, [](lv_event_t *e) {
+      scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
   } else {
     diag_label = lv_label_create(content);
     lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
