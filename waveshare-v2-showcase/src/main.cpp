@@ -160,7 +160,7 @@ static void render_scene(int kind, int detail) {
 static void update_scene_stats() {
   if (!scene_stats) return;
   lv_label_set_text_fmt(scene_stats,
-    "RGB565 %dx%d | %lu KB | Gen %lu ms\\nFlush %lu calls, %lu px, %lu us",
+    "RGB565 %dx%d | %lu KB | Gen %lu ms\nFlush %lu calls, %lu px, %lu us",
     IMG_W, IMG_H, (unsigned long)(IMG_W * IMG_H * 2 / 1024),
     (unsigned long)last_scene_ms, (unsigned long)flush_calls,
     (unsigned long)flush_pixels, (unsigned long)flush_us);
@@ -268,7 +268,7 @@ static void show_page(int page) {
       lv_obj_t *btn = lv_list_add_button(list, nullptr, item);
       lv_obj_add_event_cb(btn, [](lv_event_t *e) {
         lv_obj_t *btn = lv_event_get_target_obj(e);
-        Serial.printf("List selected: %s\\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
+        Serial.printf("List selected: %s\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
       }, LV_EVENT_CLICKED, nullptr);
     }
   } else if (page == 4) {
@@ -298,7 +298,7 @@ static void show_page(int page) {
       lv_obj_center(nl);
       lv_obj_add_event_cb(next, [](lv_event_t *) { select_scene((scene_kind + 1) % 4); }, LV_EVENT_CLICKED, nullptr);
       lv_obj_t *detail = lv_dropdown_create(content);
-      lv_dropdown_set_options(detail, "Flat\\nTexture\\nNoise");
+      lv_dropdown_set_options(detail, "Flat\nTexture\nNoise");
       lv_obj_set_width(detail, 90);
       lv_obj_align(detail, LV_ALIGN_BOTTOM_MID, 0, -35);
       lv_dropdown_set_selected(detail, scene_detail);
@@ -343,7 +343,7 @@ void setup() {
   delay(500);
   Wire1.beginTransmission(TOUCH_ADDR);
   bool detected = Wire1.endTransmission() == 0;
-  Serial.printf("CST3530 V2: %s\\n", detected ? "detected" : "not detected");
+  Serial.printf("CST3530 V2: %s\n", detected ? "detected" : "not detected");
   lcd->fillScreen(0x0000);
   lv_init();
   display = lv_display_create(WIDTH, HEIGHT);
