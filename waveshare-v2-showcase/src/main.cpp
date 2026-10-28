@@ -359,13 +359,16 @@ static void scene_drag_position(int distance) {
     lv_obj_set_x(scene_image, sign * (distance - extent));
   }
 }
-static void scene_release_drag(int velocity_px_s) {
+static void scene_release_drag(int velocity_px_s, uint32_t gesture_ms) {
   if (!drag_active || scene_animating) return;
   const int extent = transition_type == 2 ? HEIGHT : WIDTH;
   const int sign = drag_direction > 0 ? -1 : 1;
   // A deliberate fast flick commits even when travel is below 35%.
   // Velocity is signed in the direction of the intended page change.
-  const bool fast_flick = velocity_px_s >= 450 && drag_distance >= 12;
+  const bool quick_gesture = gesture_ms <= 350 && drag_distance >= 28 &&
+      (drag_distance * 1000UL / (gesture_ms ? gesture_ms : 1)) >= 250;
+  const bool fast_flick = (velocity_px_s >= 450 && drag_distance >= 12) ||
+      (quick_gesture && velocity_px_s > -150);
   const bool commit = drag_distance >= extent * 35 / 100 || fast_flick;
   const int remaining = commit ? extent - drag_distance : drag_distance;
   const uint32_t duration = uint32_t(220) * remaining / extent + 45;
@@ -720,7 +723,8 @@ void loop() {
       if (now > swipe_last_axis_ms && axis != swipe_last_axis) {
         const int instantaneous = (axis - swipe_last_axis) * 1000 / int(now - swipe_last_axis_ms);
         // Smooth the latest movement without requiring a long finger hold.
-        swipe_velocity_px_s = (swipe_velocity_px_s + instantaneous * 2) / 3;
+        swipe_velocity_px_s = swipe_velocity_px_s == 0 ? instantaneous :
+                              (swipe_velocity_px_s + instantaneous * 2) / 3;
         swipe_last_axis = axis;
         swipe_last_axis_ms = now;
       }
@@ -737,7 +741,7 @@ void loop() {
         const int intended_sign = drag_direction > 0 ? -1 : 1;
         int velocity = swipe_velocity_px_s * intended_sign;
         // Fast short flicks can finish; reversing direction gives negative velocity.
-        scene_release_drag(velocity);
+        scene_release_drag(velocity, duration);
       }
       else if (!scene_animating && duration < 1200 && swipe_start_y > 88) {
         if (transition_type == 2 && abs(dy) >= 45 && abs(dy) > abs(dx) * 3 / 2)
