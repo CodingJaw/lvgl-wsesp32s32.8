@@ -92,11 +92,12 @@ static void resetCounters() {
   Serial.println("[DIAG] Session counters reset");
 }
 static void printSnapshot() {
-  Serial.printf("[DIAG] uptime=%lus CPU=%uMHz reset=%s; heap=%lu free (min=%lu) PSRAM=%lu free (min=%lu)\n",
+  Serial.printf("[DIAG] uptime=%lus CPU=%uMHz reset=%s; heap=%lu free (session min=%lu, boot min=%lu) PSRAM=%lu free (session min=%lu, boot min=%lu)\n",
     (unsigned long)(millis()/1000),(unsigned)ESP.getCpuFreqMHz(),
     resetName(esp_reset_reason()),(unsigned long)ESP.getFreeHeap(),
-    (unsigned long)minHeap,(unsigned long)ESP.getFreePsram(),
-    (unsigned long)minPsram);
+    (unsigned long)minHeap,(unsigned long)ESP.getMinFreeHeap(),
+    (unsigned long)ESP.getFreePsram(),(unsigned long)minPsram,
+    (unsigned long)ESP.getMinFreePsram());
   Serial.printf("[DIAG] touch=%s x=%u y=%u IRQ4=%d samples=%lu errors=%lu presses=%lu\n",
     touching?"DOWN":"UP",(unsigned)touchX,(unsigned)touchY,digitalRead(4),
     (unsigned long)touchReads,(unsigned long)touchErrors,(unsigned long)touchPresses);
@@ -300,16 +301,22 @@ static void tick(uint32_t now,uint32_t flushCalls,uint32_t flushPixels,
     "CPU:%u MHz  Core(s):%u\n"
     "Uptime:%luh %lum | Reset:%s\n"
     "Heap:%lu KB free / %lu KB total\n"
-    "Min heap (session):%lu KB\n"
+    "Min heap session/boot:%lu/%lu KB\n"
+    "Largest heap block:%lu KB\n"
     "PSRAM:%lu KB free / %lu KB total\n"
-    "Min PSRAM (session):%lu KB",
+    "Min PSRAM session/boot:%lu/%lu KB\n"
+    "Largest PSRAM block:%lu KB",
     (unsigned)ESP.getCpuFreqMHz(),(unsigned)ESP.getChipCores(),
     (unsigned long)(now/3600000UL),(unsigned long)((now/60000UL)%60),
     resetName(esp_reset_reason()),
     (unsigned long)(heap/1024),(unsigned long)(ESP.getHeapSize()/1024),
     (unsigned long)(minHeap/1024),
+    (unsigned long)(ESP.getMinFreeHeap()/1024),
+    (unsigned long)(ESP.getMaxAllocHeap()/1024),
     (unsigned long)(psram/1024),(unsigned long)(ESP.getPsramSize()/1024),
-    (unsigned long)(minPsram/1024));
+    (unsigned long)(minPsram/1024),
+    (unsigned long)(ESP.getMinFreePsram()/1024),
+    (unsigned long)(ESP.getMaxAllocPsram()/1024));
   if(wifiLabel){
     const bool connected=WiFi.status()==WL_CONNECTED;
     const String apIP=WifiPortal::apEnabled?WiFi.softAPIP().toString():String("off");
