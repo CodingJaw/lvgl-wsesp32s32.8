@@ -10,6 +10,7 @@ static WebServer server(80);
 static Preferences prefs;
 static String apSsid, apPass, staSsid, staPass;
 static bool staEnabled = false;
+static bool apEnabled = true;
 static bool btRequested = false;
 static uint32_t lastRetry = 0;
 static bool ready = false;
@@ -38,7 +39,14 @@ static String statusText() {
   if (WiFi.status() == WL_CONNECTED) return "Connected: " + WiFi.localIP().toString();
   return "Connecting / disconnected";
 }
+static void applyWifi() {
+  // Do not allow disabling both interfaces: preserve a setup recovery path.
+  if (!apEnabled && !staEnabled) apEnabled = true;
+  WiFi.mode(apEnabled ? (staEnabled ? WIFI_AP_STA : WIFI_AP) : WIFI_STA);
+  if (apEnabled) WiFi.softAP(apSsid.c_str(), apPass.c_str());
+}
 static void startSta() {
+  if (!staEnabled) { WiFi.disconnect(false, false); return; }
   WiFi.disconnect(false, false);
   if (staEnabled && !staSsid.isEmpty()) {
     WiFi.begin(staSsid.c_str(), staPass.c_str());
@@ -46,8 +54,24 @@ static void startSta() {
   }
 }
 static void startAp() {
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(apSsid.c_str(), apPass.c_str());
+  applyWifi();
+}
+static void setStationEnabled(bool enabled) {
+  staEnabled = enabled && !staSsid.isEmpty();
+  prefs.putBool("sta_on", staEnabled);
+  applyWifi();
+  startSta();
+}
+static void setApEnabled(bool enabled) {
+  apEnabled = enabled;
+  if (!apEnabled && !staEnabled) apEnabled = true;
+  prefs.putBool("ap_on", apEnabled);
+  applyWifi();
+}
+static void setBluetoothRequested(bool enabled) {
+  // This is a persisted preference, not a BLE controller start.
+  btRequested = enabled;
+  prefs.putBool("ble_on", enabled);
 }
 static void redirectHome() {
   server.sendHeader("Location", "/", true);
@@ -62,6 +86,7 @@ button{background:#2563eb;border:0;font-weight:bold}label{display:block}small{co
 <h1>ESP32-S3 Remote Settings</h1><section><h2>Network status</h2>)HTML";
   html += "<p>AP: <b>" + escapeHtml(apSsid) + "</b> | " + WiFi.softAPIP().toString() + "</p>";
   html += "<p>Home Wi-Fi: <b>" + escapeHtml(statusText()) + "</b></p>";
+  html += "<p>AP: " + String(apEnabled ? "enabled" : "disabled") + " | BLE preference: " + String(btRequested ? "enabled (not active)" : "disabled") + "</p>";
   html += "<p>Wi-Fi MAC: " + WiFi.macAddress() + "</p></section>";
   html += R"HTML(<section><h2>Home Wi-Fi</h2><form method="post" action="/wifi">
 <label>Network name (SSID)</label><input name="ssid" maxlength="32" value=")HTML";
@@ -109,6 +134,7 @@ static void saveWifi() {
   prefs.putString("sta_ssid", staSsid);
   prefs.putString("sta_pass", staPass);
   prefs.putBool("sta_on", staEnabled);
+  applyWifi();
   startSta();
   redirectHome();
 }
@@ -130,6 +156,9 @@ static void begin() {
   staSsid = prefs.getString("sta_ssid", "");
   staPass = prefs.getString("sta_pass", "");
   staEnabled = prefs.getBool("sta_on", false);
+  apEnabled = prefs.getBool("ap_on", true);
+  btRequested = prefs.getBool("ble_on", false);
+  if (!apEnabled && !staEnabled) apEnabled = true;
   startAp();
   startSta();
   server.on("/", HTTP_GET, home);
