@@ -1,9 +1,10 @@
 #pragma once
 #include <Preferences.h>
 #include <math.h>
+#include "classic_savers.h"
 namespace Saver {
 static Preferences prefs;
-static uint8_t mode=0; // 0 black, 1 clock, 2 bouncing dot, 3 starfield
+static uint8_t mode=0; // 0 black, 1 clock, 2 dot, 3 starfield, 4 lines, 5 bubbles, 6 classic stars
 static uint32_t timeoutSec=60;
 static uint8_t brightness=128;
 static uint32_t lastActivity=0, lastFrame=0;
@@ -14,13 +15,13 @@ static int16_t x=50,y=80,vx=2,vy=2;
 static void begin(){
   prefs.begin("screensaver",false);
   mode=prefs.getUChar("mode",0);
-  if(mode>3)mode=0;
+  if(mode>6)mode=0;
   timeoutSec=prefs.getUInt("timeout",60);
   if(timeoutSec>3600)timeoutSec=60;
   lastActivity=millis();
 }
 static void save(uint8_t m,uint32_t timeout){
-  mode=m>3?0:m;
+  mode=m>6?0:m;
   timeoutSec=timeout>3600?3600:timeout;
   prefs.putUChar("mode",mode);
   prefs.putUInt("timeout",timeoutSec);
@@ -58,6 +59,8 @@ static void start(){
     lv_obj_set_style_text_color(label,lv_color_white(),0);
     lv_obj_set_style_text_font(label,&lv_font_montserrat_28,0);
     lv_obj_center(label);
+  }else if(mode>=4){
+    ClassicSavers::init(screen,mode);
   }else{
     const int count=mode==2?1:12;
     for(int i=0;i<count;++i){
@@ -88,7 +91,9 @@ static void tick(bool touching,bool inhibit){
   }
   if(mode==0 || now-lastFrame<80)return;
   lastFrame=now;
-  if(mode==1 && label){
+  if(mode>=4){
+    ClassicSavers::tick(mode);
+  }else if(mode==1 && label){
     const uint32_t seconds=now/1000;
     // Uptime is shown until network/NTP time is integrated.
     lv_label_set_text_fmt(label,"Uptime\n%02lu:%02lu:%02lu",
