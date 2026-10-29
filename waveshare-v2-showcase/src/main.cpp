@@ -8,6 +8,7 @@
 #include "wifi_portal.h"
 #include "screensaver.h"
 #include "power_tests.h"
+#include "diagnostics.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -36,13 +37,16 @@ static uint32_t last_tick;
 static lv_obj_t *content;
 
 static uint32_t flush_pixels = 0, flush_calls = 0, flush_us = 0;
+static uint32_t flush_max_us = 0; // Max SPI flush duration since boot
 
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   const int w = a->x2 - a->x1 + 1;
   const int h = a->y2 - a->y1 + 1;
   uint32_t start_us = micros();
   lcd->draw16bitRGBBitmap(a->x1, a->y1, reinterpret_cast<uint16_t *>(px), w, h);
-  flush_us += micros() - start_us;
+  const uint32_t elapsed_us = micros() - start_us;
+  flush_us += elapsed_us;
+  if (elapsed_us > flush_max_us) flush_max_us = elapsed_us;
   flush_pixels += uint32_t(w) * h;
   ++flush_calls;
   lv_display_flush_ready(d);
@@ -73,6 +77,7 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
     touch_pressed = ok && count > 0 && count <= 5 &&
                     (frame[8] & 0xf0) != 0 && x < WIDTH && y < HEIGHT;
     if (touch_pressed) { touch_x = x; touch_y = y; }
+    Diagnostics::noteTouchSample(ok,touch_pressed,touch_x,touch_y);
   }
   // A wake touch must never reach the previous screen's buttons.
   if (touch_pressed) Saver::activity();
@@ -87,9 +92,6 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
     : (touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED);
 }
 
-static lv_obj_t *diag_label = nullptr;
-static uint32_t diag_last = 0;
-static uint32_t diag_frames = 0;
 static int current_page = 0;
 static lv_obj_t *network_status_label = nullptr;
 
@@ -566,7 +568,7 @@ static void show_page(int page) {
   close_scene_overlay();
   current_page = page;
   PowerTests::detach();
-  diag_label = nullptr;
+  Diagnostics::detach();
   network_status_label = nullptr;
   scene_image = nullptr;
   scene_stats = nullptr;
@@ -574,6 +576,7 @@ static void show_page(int page) {
   lv_obj_set_style_bg_color(content,lv_color_hex(0xFFFFFF),0);
   lv_obj_set_style_bg_opa(content,LV_OPA_COVER,0);
   lv_obj_set_style_pad_all(content,4,0);
+  lv_obj_set_scroll_dir(content, LV_DIR_ALL); // Reset per-page scroll mode.
   if (page == 0) {
     lv_obj_t *label = lv_label_create(content);
     lv_label_set_text(label, "Widgets");
@@ -849,14 +852,16 @@ static void show_page(int page) {
       scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
     }
+  } else if(page==9){
+    Diagnostics::render(content,flush_calls,flush_pixels,flush_us);
   } else if(page==10){
     PowerTests::render(content);
   } else if(page==11 && CustomRemote::enabled){
     CustomRemote::render(content);
   } else {
-    diag_label = lv_label_create(content);
-    lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
-    lv_label_set_text(diag_label, "Diagnostics loading...");
+    lv_obj_t *invalid=lv_label_create(content);
+    lv_label_set_text(invalid,"Page unavailable");
+    lv_obj_center(invalid);
   }
 }
 
@@ -961,6 +966,7 @@ void loop() {
   lv_timer_handler();
   PowerTests::tick(touch_pressed);
   Saver::tick(touch_pressed,scene_animating || drag_active);
+  Diagnostics::tick(now,flush_calls,flush_pixels,flush_us,flush_max_us,Saver::active);
   if(Saver::active || Saver::suppressTouch) {
     delay(5);
     return;
@@ -1016,25 +1022,14 @@ void loop() {
       }
     }
   } else swipe_tracking = false;
-  ++diag_frames;
-  if (now - diag_last >= 1000) {
-    if (network_status_label) {
-      lv_label_set_text_fmt(network_status_label,
-        "AP: %s\nIP: %s\nSTA: %s",
-        WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
-        WifiPortal::statusText().c_str());
-    }
-    if (diag_label) {
-      const uint32_t elapsed = now - diag_last;
-      const uint32_t loops_per_second = elapsed ? diag_frames * 1000UL / elapsed : 0;
-      lv_label_set_text_fmt(diag_label,
-        "Waveshare 2.8 V2\nLVGL 9.2.2\nUptime: %lu s\nLoop: %lu/s\nHeap: %lu B\nPSRAM: %lu B\nTouch: %u, %u (%s)",
-        (unsigned long)(now / 1000), (unsigned long)loops_per_second,
-        (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getFreePsram(),
-        touch_x, touch_y, touch_pressed ? "down" : "up");
-    }
-    diag_last = now;
-    diag_frames = 0;
+  // Retain existing Wi-Fi-tab status updates; Diag has an independent ticker.
+  static uint32_t network_last = 0;
+  if (network_status_label && (uint32_t)(now-network_last)>=1000) {
+    network_last=now;
+    lv_label_set_text_fmt(network_status_label,
+      "AP: %s\nIP: %s\nSTA: %s",
+      WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
+      WifiPortal::statusText().c_str());
   }
   delay(5);
 }
