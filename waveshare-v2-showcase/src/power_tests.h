@@ -293,21 +293,14 @@ static void unholdBatteryLatch() {
 static void enterDeep(Action a) {
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   if(a==DEEP_MOTION) {
-    if(!configWoM(womThresholdMg)) {
-      setNotice("WoM setup failed; deep sleep CANCELLED.");
-      MotionWake::begin();
-      return;
-    }
-    // Selected INT2 is initially LOW and becomes HIGH on motion.
-    if(digitalRead(12)!=LOW) {
-      setNotice("INT2 is HIGH before sleep; cancelled. Try again at rest.");
-      MotionWake::begin();
+    if(!configWoM(womThresholdMg) || !clearStaleMotion()) {
+      restoreImu();
       return;
     }
     const esp_err_t err=esp_sleep_enable_ext0_wakeup(GPIO_NUM_12,1);
     if(err!=ESP_OK) {
       setNotice(String("EXT0 failed: ")+esp_err_to_name(err));
-      MotionWake::begin();
+      restoreImu();
       return;
     }
   }
@@ -315,17 +308,21 @@ static void enterDeep(Action a) {
   const esp_err_t timerResult=esp_sleep_enable_timer_wakeup(uint64_t(secs)*1000000ULL);
   if(timerResult!=ESP_OK) {
     setNotice(String("Sleep timer failed: ")+esp_err_to_name(timerResult));
-    MotionWake::begin();
+    if(a==DEEP_MOTION)restoreImu();
     return;
   }
   if(!holdBatteryLatch()) {
     unholdBatteryLatch();
-    MotionWake::begin();
+    if(a==DEEP_MOTION)restoreImu();
     return;
   }
   testMagic=MAGIC;
   lastDeepTest=a;
   lastWomMg=womThresholdMg;
+  setNotice(String("Entering ")+String(secs)+
+     "s deep sleep; CPU will reboot on wake.");
+  lv_timer_handler();
+  delay(160);
   Serial.printf("[POWER] DEEP sleep %us, mode=%u, INT2=%d\n",
                 (unsigned)secs,(unsigned)a,digitalRead(12));
   Serial.flush();
@@ -334,27 +331,47 @@ static void enterDeep(Action a) {
 }
 
 static void enterLight() {
-  // ESP-IDF manually initiated light sleep cannot retain an active Wi-Fi stack.
-  // The portal is restored on return; remote clients will briefly disconnect.
-  Serial.println("[POWER] Light sleep, five seconds; temporarily stopping WiFi");
+  // Active-low touch IRQ (GPIO4) and PWR SYS_OUT (GPIO6).
+  // Timer provides a 10-second fallback.
+  Serial.println("[POWER] Light sleep: touch / PWR / 10s timeout");
   Serial.flush();
   ledcWrite(5,0);
   WiFi.mode(WIFI_OFF);
   delay(100);
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-  const esp_err_t timerErr=esp_sleep_enable_timer_wakeup(5000000ULL);
+  const esp_err_t timerErr=esp_sleep_enable_timer_wakeup(10000000ULL);
+  bool touchArmed=false, pwrArmed=false;
+  if(digitalRead(4)==HIGH &&
+     gpio_wakeup_enable(GPIO_NUM_4, GPIO_INTR_LOW_LEVEL)==ESP_OK)touchArmed=true;
+  if(digitalRead(6)==HIGH &&
+     gpio_wakeup_enable(GPIO_NUM_6, GPIO_INTR_LOW_LEVEL)==ESP_OK)pwrArmed=true;
+  if(touchArmed || pwrArmed) {
+    const esp_err_t err=esp_sleep_enable_gpio_wakeup();
+    if(err!=ESP_OK){
+      Serial.printf("[POWER] GPIO wake configuration error: %s\n",esp_err_to_name(err));
+      touchArmed=false; pwrArmed=false;
+    }
+  }
+  Serial.printf("[POWER] Light sources: timer, touch=%d PWR=%d\n",touchArmed,pwrArmed);
   const esp_err_t sleepErr=timerErr==ESP_OK?esp_light_sleep_start():timerErr;
+  const esp_sleep_wakeup_cause_t why=esp_sleep_get_wakeup_cause();
+  gpio_wakeup_disable(GPIO_NUM_4);
+  gpio_wakeup_disable(GPIO_NUM_6);
   ledcWrite(5,Saver::brightness);
   WifiPortal::startAp();
   WifiPortal::startSta();
-  setNotice(sleepErr==ESP_OK ? "Light sleep returned; Wi-Fi restored."
-            : String("Light sleep failed: ")+esp_err_to_name(sleepErr));
+  Saver::activity();
+  setNotice(sleepErr==ESP_OK
+    ? String("Light wake: ")+wakeName(why)+
+      " | TP4="+String(digitalRead(4))+" PWR6="+String(digitalRead(6))
+    : String("Light sleep failed: ")+esp_err_to_name(sleepErr));
 }
 static void tick(bool touching) {
   uint32_t now=millis();
+  if(probeActive)probeTick(now);
   if(backlightUntil) {
     Saver::activity();
-    if(touching || (int32_t)(now-backlightUntil)>=0) {
+    if(touching || digitalRead(6)==LOW || (int32_t)(now-backlightUntil)>=0) {
       backlightUntil=0;
       ledcWrite(5,Saver::brightness);
       setNotice("Backlight restored (ESP32 stayed awake).");
@@ -363,19 +380,20 @@ static void tick(bool touching) {
   if(live && now-lastUi>=700) {
     lastUi=now;
     lv_label_set_text_fmt(live,
-      "Boot wake: %s\nBattery: ~%lu mV (GPIO8)\nIMU: %s | INT1/13=%d INT2/12=%d\nSYS_EN/7=%d | Heap: %lu KB",
+      "Boot wake: %s\nBattery: ~%lu mV (GPIO8)\nIMU: %s | INT1/13=%d INT2/12=%d\nPWR/6=%d TP/4=%d SYS_EN/7=%d | Heap: %lu KB",
       bootMessage.c_str(),(unsigned long)batteryMilliVolts(),
       MotionWake::ready?"detected":"missing",digitalRead(13),digitalRead(12),
-      digitalRead(7),(unsigned long)(ESP.getFreeHeap()/1024));
+      digitalRead(6),digitalRead(4),digitalRead(7),(unsigned long)(ESP.getFreeHeap()/1024));
   }
   if(pending==NONE || (int32_t)(now-scheduledMs)<0)return;
   const Action a=pending;
   pending=NONE;
   Saver::activity();
-  if(a==BACKLIGHT_10S) {
+  if(a==WOM_PROBE)startProbe();
+  else if(a==BACKLIGHT_10S) {
     backlightUntil=now+10000;
     ledcWrite(5,0);
-    setNotice("Backlight off: touch or wait 10 sec.");
+    setNotice("Backlight off: touch/PWR or wait 10 sec.");
   } else if(a==LIGHT_5S) enterLight();
   else if(a==DEEP_TIMER || a==DEEP_MOTION) enterDeep(a);
   else if(a==HARD_OFF) {
