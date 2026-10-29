@@ -109,10 +109,12 @@ static void printSnapshot() {
     (unsigned long)loopPerSecond,(unsigned long)flushRate,
     (unsigned long)pixelRate,(unsigned long)avgFlushUs,
     (unsigned long)totalFlushMaxUs);
-  Serial.printf("[DIAG] BAT~%lumV SYS_EN=%d PWR=%d; AP=%d clients=%d STA=%d RSSI=%lddBm\n",
+  const bool staConnected=WiFi.status()==WL_CONNECTED;
+  const String rssi=staConnected?String(WiFi.RSSI())+" dBm":String("n/a");
+  Serial.printf("[DIAG] BAT~%lumV SYS_EN=%d PWR=%d; AP=%d clients=%d STA=%d RSSI=%s\n",
     (unsigned long)PowerTests::batteryMilliVolts(),digitalRead(7),digitalRead(6),
     WifiPortal::apEnabled,WiFi.softAPgetStationNum(),
-    WiFi.status()==WL_CONNECTED,(long)WiFi.RSSI());
+    staConnected,rssi.c_str());
 }
 static void detach() {
   active=false;
@@ -321,14 +323,15 @@ static void tick(uint32_t now,uint32_t flushCalls,uint32_t flushPixels,
     const bool connected=WiFi.status()==WL_CONNECTED;
     const String apIP=WifiPortal::apEnabled?WiFi.softAPIP().toString():String("off");
     const String staIP=connected?WiFi.localIP().toString():String("not connected");
+    const String rssi=connected?String(WiFi.RSSI())+" dBm":String("n/a");
     lv_label_set_text_fmt(wifiLabel,
       "AP:%s | clients:%d\n"
       "AP IP:%s\n"
-      "STA:%s | RSSI:%ld dBm\n"
+      "STA:%s | RSSI:%s\n"
       "STA IP:%s",
       WifiPortal::apEnabled?"ON":"OFF",WiFi.softAPgetStationNum(),
       apIP.c_str(),connected?"connected":"offline",
-      connected?(long)WiFi.RSSI():0L,staIP.c_str());
+      rssi.c_str(),staIP.c_str());
   }
   if(powerLabel){
     const uint32_t mv=PowerTests::batteryMilliVolts();
