@@ -90,6 +90,10 @@ static void setNotice(const String &s) {
 }
 static void request(Action a) {
   if (pending != NONE || backlightUntil != 0) return;
+  if(probeActive) {
+    setNotice("WoM probe running. Move remote or allow its 15s timeout.");
+    return;
+  }
   if (a == HARD_OFF && !allowHardOff) {
     setNotice("Tick the hard-off confirmation first.");
     return;
