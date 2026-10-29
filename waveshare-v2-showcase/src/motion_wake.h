@@ -50,7 +50,7 @@ static bool poll() {
   ax=x;ay=y;az=z;
   const int32_t thresholds[]={360,750,1400}; // ~0.09g, 0.18g, 0.34g @ +/-8g
   int32_t threshold=thresholds[sensitivity<3?sensitivity:1];
-  bool moved=(dx*dx+dy*dy+dz*dz)>threshold*threshold;
+  bool moved=(int64_t(dx)*dx+int64_t(dy)*dy+int64_t(dz)*dz)>int64_t(threshold)*threshold;
   if(moved && now-lastTrigger>900){lastTrigger=now;return true;}
   return false;
 }
