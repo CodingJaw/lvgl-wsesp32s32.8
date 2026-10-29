@@ -625,16 +625,49 @@ static void show_page(int page) {
     }
   } else if (page == 7) {
     lv_obj_t *heading = lv_label_create(content);
-    lv_label_set_text(heading, "Wi-Fi / AP Setup");
-    lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 5);
+    lv_label_set_text(heading, "Wireless Settings");
+    lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 2);
+
+    lv_obj_t *ap_switch = lv_switch_create(content);
+    lv_obj_align(ap_switch, LV_ALIGN_TOP_LEFT, 8, 32);
+    if (WifiPortal::apEnabled) lv_obj_add_state(ap_switch, LV_STATE_CHECKED);
+    lv_obj_t *ap_label = lv_label_create(content);
+    lv_label_set_text(ap_label, "Setup AP");
+    lv_obj_align_to(ap_label, ap_switch, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_add_event_cb(ap_switch, [](lv_event_t *e) {
+      const bool enabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+      WifiPortal::setApEnabled(enabled);
+      if (WifiPortal::apEnabled) lv_obj_add_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t *sta_switch = lv_switch_create(content);
+    lv_obj_align(sta_switch, LV_ALIGN_TOP_LEFT, 8, 74);
+    if (WifiPortal::staEnabled) lv_obj_add_state(sta_switch, LV_STATE_CHECKED);
+    lv_obj_t *sta_label = lv_label_create(content);
+    lv_label_set_text(sta_label, "Home Wi-Fi");
+    lv_obj_align_to(sta_label, sta_switch, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_add_event_cb(sta_switch, [](lv_event_t *e) {
+      const bool enabled = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+      WifiPortal::setStationEnabled(enabled);
+      if (WifiPortal::staEnabled) lv_obj_add_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+      else lv_obj_remove_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t *ble_switch = lv_switch_create(content);
+    lv_obj_align(ble_switch, LV_ALIGN_TOP_LEFT, 8, 116);
+    if (WifiPortal::btRequested) lv_obj_add_state(ble_switch, LV_STATE_CHECKED);
+    lv_obj_t *ble_label = lv_label_create(content);
+    lv_label_set_text(ble_label, "BLE (planned)");
+    lv_obj_align_to(ble_label, ble_switch, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_add_event_cb(ble_switch, [](lv_event_t *e) {
+      WifiPortal::setBluetoothRequested(
+        lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED));
+    }, LV_EVENT_VALUE_CHANGED, nullptr);
+
     network_status_label = lv_label_create(content);
     lv_obj_set_width(network_status_label, 198);
     lv_label_set_long_mode(network_status_label, LV_LABEL_LONG_WRAP);
-    lv_obj_align(network_status_label, LV_ALIGN_TOP_MID, 0, 35);
-    lv_label_set_text_fmt(network_status_label,
-      "AP: %s\nIP: %s\nSTA: %s\n\nWeb login: admin\nPassword: AP password\n\nBluetooth: pending",
-      WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
-      WifiPortal::statusText().c_str());
+    lv_obj_align(network_status_label, LV_ALIGN_TOP_MID, 0, 160);
   } else if (page >= 4 && page <= 6) {
     scene_format = page - 4;
     lv_obj_t *intro = lv_label_create(content);
@@ -815,7 +848,7 @@ void loop() {
   if (now - diag_last >= 1000) {
     if (network_status_label) {
       lv_label_set_text_fmt(network_status_label,
-        "AP: %s\nIP: %s\nSTA: %s\n\nWeb login: admin\nPassword: AP password\n\nBluetooth: pending",
+        "AP: %s\nIP: %s\nSTA: %s",
         WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
         WifiPortal::statusText().c_str());
     }
