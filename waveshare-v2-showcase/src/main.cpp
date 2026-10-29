@@ -938,7 +938,9 @@ void setup() {
   WifiPortal::begin();
   Saver::begin();
   PowerTests::begin();
-  show_page(0);
+  // Deep sleep restarts the ESP32. Return to the Power test tab and show
+  // the actual wake reason instead of silently opening the first tab.
+  show_page(PowerTests::resumePowerTab ? 10 : 0);
   last_tick = millis();
   Serial.printf("LVGL showcase initialized; touch enabled: %s\n", TOUCH_READY ? "yes" : "no");
 }
