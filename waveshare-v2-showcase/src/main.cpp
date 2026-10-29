@@ -73,9 +73,17 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
                     (frame[8] & 0xf0) != 0 && x < WIDTH && y < HEIGHT;
     if (touch_pressed) { touch_x = x; touch_y = y; }
   }
+  // A wake touch must never reach the previous screen's buttons.
+  if (touch_pressed) Saver::activity();
+  if (Saver::active && touch_pressed && Saver::wakeArmed) {
+    Saver::wakeRequested=true; // Process after lv_timer_handler(), not inside LVGL input callback.
+    Saver::suppressTouch=true;
+  }
   data->point.x = touch_x;
   data->point.y = touch_y;
-  data->state = touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+  data->state = (Saver::active || Saver::suppressTouch)
+    ? LV_INDEV_STATE_RELEASED
+    : (touch_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED);
 }
 
 static lv_obj_t *diag_label = nullptr;
