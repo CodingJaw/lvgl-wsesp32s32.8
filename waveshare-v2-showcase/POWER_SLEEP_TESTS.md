@@ -42,3 +42,31 @@ The live battery voltage is an **approximation**, not a current measurement. For
 - https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/sleep_modes.html
 
 Waveshare says the board supports multiple power modes and documents its battery latch, but the accessible board guide does **not** provide V2-specific current measurements for each sleep state.
+
+
+## Retest after first hardware results (2026-10-29)
+
+Earlier results: backlight woke by touch only; light sleep returned on its timer, not touch; timed deep sleep rebooted to the first tab; motion deep sleep did not blank the display; hardware power-off worked.
+
+### Updated tests
+
+- Live diagnostics include GPIO6 PWR/SYS_OUT, GPIO4 touch IRQ, GPIO12/13 IMU interrupts, boot wake reason.
+- Backlight off: touch, PWR or 10-second timeout restores backlight.
+- Light sleep: attempts touch IRQ GPIO4 and PWR GPIO6 active-low wake if pins are idle HIGH; 10-second timer fallback. GPIO wake resumes in place.
+- Deep sleep: reboot is normal, but Power tab reopens automatically with wake cause and test result.
+- IMU motion probe (no sleep): configure QMI8658 WoM, monitor INT2 GPIO12 / STATUS1 for 15 seconds, then restore normal mode. Move device when armed. Reports trigger, timeout, or why configuration failed.
+- Deep motion: only try after successful probe. INT2 GPIO12 HIGH wakes via EXT0; timer fallback is 60 seconds. Reports configuration errors.
+- SYS_EN off remains separately confirmed; do not treat physical BOOT/RESET as application motion-wake inputs.
+
+### Recommended new test order
+
+1. Watch live PWR/6 and TP/4 values; press PWR and touch display to confirm signals change from 1 to 0.
+2. Run backlight off; wake with PWR. Verify it stays on the same tab.
+3. Run light sleep; wake with PWR and repeat with touch. Check displayed wake cause: GPIO vs timer.
+4. Run timed deep sleep; verify Power tab returns after the 15-second timer with reported wake cause.
+5. Run IMU probe; tap then move remote and report whether it says TRIGGERED, TIMEOUT, or shows an error.
+6. Only if probe passes, run 60-second motion deep sleep; confirm wake cause EXT0 vs timer.
+
+Serial monitor command: platformio device monitor -p /dev/ttyACM0 -b 115200. Collect [POWER] lines.
+
+Caution: light-sleep touch wake requires active-low idle-high CST3530 IRQ. GPIO4 is skipped if already LOW when arming. Real battery current still requires external measurement.
