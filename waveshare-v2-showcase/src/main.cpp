@@ -6,6 +6,7 @@
 #include <JPEGDEC.h>
 #include "room_photos.h"
 #include "wifi_portal.h"
+#include "screensaver.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -654,6 +655,38 @@ static void show_page(int page) {
         Serial.printf("List selected: %s\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
       }, LV_EVENT_CLICKED, nullptr);
     }
+  } else if (page == 8) {
+    lv_obj_t *heading=lv_label_create(content);
+    lv_label_set_text(heading,"Screensaver");
+    lv_obj_align(heading,LV_ALIGN_TOP_MID,0,0);
+    lv_obj_t *choice=lv_dropdown_create(content);
+    lv_dropdown_set_options(choice,"Black screen (backlight off)\nUptime clock\nBouncing dot\nStarfield");
+    lv_dropdown_set_selected(choice,Saver::mode);
+    lv_obj_set_width(choice,195);
+    lv_obj_align(choice,LV_ALIGN_TOP_MID,0,35);
+    lv_obj_add_event_cb(choice,[](lv_event_t *e){
+      Saver::save(lv_dropdown_get_selected(lv_event_get_target_obj(e)),Saver::timeoutSec);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *timing=lv_dropdown_create(content);
+    lv_dropdown_set_options(timing,"Disabled\n15 seconds\n30 seconds\n1 minute\n2 minutes\n5 minutes\n10 minutes");
+    const uint32_t times[]={0,15,30,60,120,300,600};
+    for(int i=0;i<7;++i)if(Saver::timeoutSec==times[i])lv_dropdown_set_selected(timing,i);
+    lv_obj_set_width(timing,195);
+    lv_obj_align(timing,LV_ALIGN_TOP_MID,0,85);
+    lv_obj_add_event_cb(timing,[](lv_event_t *e){
+      static const uint32_t values[]={0,15,30,60,120,300,600};
+      uint16_t i=lv_dropdown_get_selected(lv_event_get_target_obj(e));
+      if(i<7)Saver::save(Saver::mode,values[i]);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *test=lv_button_create(content);
+    lv_obj_align(test,LV_ALIGN_TOP_MID,0,142);
+    lv_obj_t *txt=lv_label_create(test);
+    lv_label_set_text(txt,"Preview now");
+    lv_obj_center(txt);
+    lv_obj_add_event_cb(test,[](lv_event_t *){Saver::start();},LV_EVENT_CLICKED,nullptr);
+    lv_obj_t *hint=lv_label_create(content);
+    lv_label_set_text(hint,"Touch to wake\nBlack mode turns off backlight");
+    lv_obj_align(hint,LV_ALIGN_TOP_MID,0,195);
   } else if (page == 7) {
     lv_obj_t *heading = lv_label_create(content);
     lv_label_set_text(heading, "Wireless Settings");
@@ -784,8 +817,8 @@ void setup() {
   lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Diag"};
-  for (int i = 0; i < 9; ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Saver", "Diag"};
+  for (int i = 0; i < 10; ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
@@ -813,6 +846,7 @@ void setup() {
     scene_old_dsc.data = reinterpret_cast<const uint8_t *>(scene_old_pixels);
   }
   WifiPortal::begin();
+  Saver::begin();
   show_page(0);
   last_tick = millis();
   Serial.printf("LVGL showcase initialized; touch enabled: %s\n", TOUCH_READY ? "yes" : "no");
@@ -828,6 +862,11 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
+  Saver::tick(touch_pressed,scene_animating || drag_active);
+  if(Saver::active || Saver::suppressTouch) {
+    delay(5);
+    return;
+  }
   // Track raw CST3530 coordinates, including motion back toward the start.
   if (scene_screen) {
     if (touch_pressed && !swipe_tracking && !scene_animating) {
