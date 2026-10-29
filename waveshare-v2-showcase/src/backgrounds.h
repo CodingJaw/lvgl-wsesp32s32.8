@@ -150,7 +150,7 @@ async function removeBg(n){
       if(uploadFailed || uploadSlot<0 || uploadSlot>3 || !mounted) {
         server.send(400,"text/plain","Upload failed; check storage and file size");return;
       }
-      if(uploadBytes<4 || !LittleFS.exists(uploadTemp)) {
+      if(uploadBytes<8 || !LittleFS.exists(uploadTemp)) {
         server.send(400,"text/plain","Empty upload");return;
       }
       File f=LittleFS.open(uploadTemp,"r");
@@ -163,11 +163,18 @@ async function removeBg(n){
           magic[4]==13 && magic[5]==10 && magic[6]==26 && magic[7]==10);
       if(!valid){LittleFS.remove(uploadTemp);server.send(400,"text/plain","Image format mismatch");return;}
       String dst=path(uploadSlot,uploadExt);
-      // Keep previous file until the temporary upload has completed.
-      // LittleFS rename can replace an existing destination on ESP32.
+      // Back up the previous same-format image so failed replacement is recoverable.
+      String backup="/previous.bak";
+      LittleFS.remove(backup);
+      bool hadPrevious=LittleFS.exists(dst);
+      if(hadPrevious && !LittleFS.rename(dst,backup)){
+        server.send(500,"text/plain","Could not back up previous image");return;
+      }
       if(!LittleFS.rename(uploadTemp,dst)){
+        if(hadPrevious)LittleFS.rename(backup,dst);
         server.send(500,"text/plain","Could not install image");return;
       }
+      LittleFS.remove(backup);
       LittleFS.remove(path(uploadSlot,uploadExt=="jpg"?"png":"jpg"));
       clearColor(uploadSlot);
       changed=true;
