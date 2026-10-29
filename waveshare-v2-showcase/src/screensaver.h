@@ -9,6 +9,7 @@ static uint8_t brightness=128;
 static uint32_t lastActivity=0, lastFrame=0;
 static bool active=false, suppressTouch=false;
 static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
+static lv_obj_t *returnScreen=nullptr;
 static int16_t x=50,y=80,vx=2,vy=2;
 static void begin(){
   prefs.begin("screensaver",false);
@@ -32,7 +33,8 @@ static void stop(){
   if(screen){
     lv_obj_t *old=screen;
     screen=nullptr;label=nullptr;
-    lv_screen_load_anim(lv_screen_get_default(),LV_SCR_LOAD_ANIM_NONE,0,0,false);
+    if(returnScreen)lv_screen_load(returnScreen);
+    returnScreen=nullptr;
     lv_obj_delete(old);
   }
   ledcWrite(5,brightness);
@@ -42,6 +44,7 @@ static void start(){
   if(active)return;
   active=true;
   if(mode==0){ledcWrite(5,0);return;}
+  returnScreen=lv_screen_active();
   screen=lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(screen,lv_color_black(),0);
   lv_obj_set_style_bg_opa(screen,LV_OPA_COVER,0);
