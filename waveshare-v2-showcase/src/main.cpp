@@ -5,6 +5,7 @@
 #include <PNGdec.h>
 #include <JPEGDEC.h>
 #include "room_photos.h"
+#include "wifi_portal.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -80,6 +81,7 @@ static lv_obj_t *diag_label = nullptr;
 static uint32_t diag_last = 0;
 static uint32_t diag_frames = 0;
 static int current_page = 0;
+static lv_obj_t *network_status_label = nullptr;
 
 
 static constexpr int IMG_W = WIDTH, IMG_H = HEIGHT;
@@ -523,6 +525,7 @@ static void show_page(int page) {
   close_scene_overlay();
   current_page = page;
   diag_label = nullptr;
+  network_status_label = nullptr;
   scene_image = nullptr;
   scene_stats = nullptr;
   lv_obj_clean(content);
@@ -620,6 +623,18 @@ static void show_page(int page) {
         Serial.printf("List selected: %s\n", lv_label_get_text(lv_obj_get_child(btn, 0)));
       }, LV_EVENT_CLICKED, nullptr);
     }
+  } else if (page == 7) {
+    lv_obj_t *heading = lv_label_create(content);
+    lv_label_set_text(heading, "Wi-Fi / AP Setup");
+    lv_obj_align(heading, LV_ALIGN_TOP_MID, 0, 5);
+    network_status_label = lv_label_create(content);
+    lv_obj_set_width(network_status_label, 198);
+    lv_label_set_long_mode(network_status_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align(network_status_label, LV_ALIGN_TOP_MID, 0, 35);
+    lv_label_set_text_fmt(network_status_label,
+      "AP: %s\nIP: %s\nSTA: %s\n\nWeb login: admin\nPassword: AP password\n\nBluetooth: pending",
+      WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
+      WifiPortal::statusText().c_str());
   } else if (page >= 4 && page <= 6) {
     scene_format = page - 4;
     lv_obj_t *intro = lv_label_create(content);
@@ -705,8 +720,8 @@ void setup() {
   lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Diag"};
-  for (int i = 0; i < 8; ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Diag"};
+  for (int i = 0; i < 9; ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
@@ -733,12 +748,14 @@ void setup() {
     scene_old_dsc = scene_dsc;
     scene_old_dsc.data = reinterpret_cast<const uint8_t *>(scene_old_pixels);
   }
+  WifiPortal::begin();
   show_page(0);
   last_tick = millis();
   Serial.printf("LVGL showcase initialized; touch enabled: %s\n", TOUCH_READY ? "yes" : "no");
 }
 
 void loop() {
+  WifiPortal::loop();
   uint32_t now = millis();
   lv_tick_inc(now - last_tick);
   last_tick = now;
@@ -796,6 +813,12 @@ void loop() {
   } else swipe_tracking = false;
   ++diag_frames;
   if (now - diag_last >= 1000) {
+    if (network_status_label) {
+      lv_label_set_text_fmt(network_status_label,
+        "AP: %s\nIP: %s\nSTA: %s\n\nWeb login: admin\nPassword: AP password\n\nBluetooth: pending",
+        WifiPortal::apSsid.c_str(), WiFi.softAPIP().toString().c_str(),
+        WifiPortal::statusText().c_str());
+    }
     if (diag_label) {
       const uint32_t elapsed = now - diag_last;
       const uint32_t loops_per_second = elapsed ? diag_frames * 1000UL / elapsed : 0;
