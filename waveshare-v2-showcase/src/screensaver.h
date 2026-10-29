@@ -10,6 +10,8 @@ static uint32_t timeoutSec=60;
 static uint8_t brightness=128;
 static bool motionEnabled=false;
 static uint8_t motionSensitivity=1;
+static uint32_t motionHoldSec=60;
+static uint32_t motionHoldUntil=0;
 static uint32_t lastActivity=0, lastFrame=0;
 static bool active=false, suppressTouch=false, wakeArmed=false, wakeRequested=false;
 static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
@@ -24,6 +26,8 @@ static void begin(){
   motionEnabled=prefs.getBool("motion",false);
   motionSensitivity=prefs.getUChar("motionLevel",1);
   if(motionSensitivity>2)motionSensitivity=1;
+  motionHoldSec=prefs.getUInt("motionHold",60);
+  if(motionHoldSec!=30 && motionHoldSec!=60 && motionHoldSec!=120 && motionHoldSec!=300)motionHoldSec=60;
   MotionWake::begin();
   MotionWake::configure(motionEnabled,motionSensitivity);
   lastActivity=millis();
@@ -34,6 +38,12 @@ static void setMotion(bool on,uint8_t level) {
   prefs.putBool("motion",motionEnabled);
   prefs.putUChar("motionLevel",motionSensitivity);
   MotionWake::configure(motionEnabled,motionSensitivity);
+  if(!on)motionHoldUntil=0;
+}
+static void setMotionHold(uint32_t seconds){
+  if(seconds!=30 && seconds!=60 && seconds!=120 && seconds!=300)return;
+  motionHoldSec=seconds;
+  prefs.putUInt("motionHold",seconds);
 }
 static void save(uint8_t m,uint32_t timeout){
   mode=m>6?0:m;
@@ -98,6 +108,8 @@ static void tick(bool touching,bool inhibit){
     if(suppressTouch)suppressTouch=false;
   }
   if(motionEnabled && MotionWake::poll()) {
+    // Every qualifying movement extends the pickup grace period.
+    motionHoldUntil=now+motionHoldSec*1000UL;
     if(active && wakeArmed)wakeRequested=true;
     else if(!active)activity();
   }
@@ -105,7 +117,9 @@ static void tick(bool touching,bool inhibit){
   if(touching)activity();
   if(inhibit){activity();return;}
   if(!active){
-    if(timeoutSec && !touching && !suppressTouch && (uint32_t)(now-lastActivity)>=timeoutSec*1000UL)start();
+    const bool motionHoldActive=motionEnabled && (int32_t)(motionHoldUntil-now)>0;
+    if(timeoutSec && !motionHoldActive && !touching && !suppressTouch &&
+       (uint32_t)(now-lastActivity)>=timeoutSec*1000UL)start();
     return;
   }
   if(mode==0 || now-lastFrame<80)return;
