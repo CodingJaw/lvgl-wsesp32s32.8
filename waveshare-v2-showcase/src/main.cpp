@@ -686,15 +686,36 @@ static void show_page(int page) {
       uint16_t i=lv_dropdown_get_selected(lv_event_get_target_obj(e));
       if(i<7)Saver::save(Saver::mode,values[i]);
     },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *motionLabel=lv_label_create(content);
+    lv_label_set_text(motionLabel,"Wake when picked up");
+    lv_obj_align(motionLabel,LV_ALIGN_TOP_LEFT,4,139);
+    lv_obj_t *motionSwitch=lv_switch_create(content);
+    lv_obj_align(motionSwitch,LV_ALIGN_TOP_RIGHT,-4,132);
+    if(Saver::motionEnabled)lv_obj_add_state(motionSwitch,LV_STATE_CHECKED);
+    lv_obj_add_event_cb(motionSwitch,[](lv_event_t *e){
+      Saver::setMotion(lv_obj_has_state(lv_event_get_target_obj(e),LV_STATE_CHECKED),Saver::motionSensitivity);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *motionLevel=lv_dropdown_create(content);
+    lv_dropdown_set_options(motionLevel,"Gentle movement\nNormal pickup\nStrong movement");
+    lv_dropdown_set_selected(motionLevel,Saver::motionSensitivity);
+    lv_obj_set_width(motionLevel,195);
+    lv_obj_align(motionLevel,LV_ALIGN_TOP_MID,0,190);
+    lv_obj_add_event_cb(motionLevel,[](lv_event_t *e){
+      Saver::setMotion(Saver::motionEnabled,lv_dropdown_get_selected(lv_event_get_target_obj(e)));
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *imuStatus=lv_label_create(content);
+    lv_label_set_text(imuStatus,MotionWake::ready?"Motion sensor ready":"Motion sensor unavailable");
+    lv_obj_align(imuStatus,LV_ALIGN_TOP_MID,0,236);
     lv_obj_t *test=lv_button_create(content);
-    lv_obj_align(test,LV_ALIGN_TOP_MID,0,142);
+    lv_obj_align(test,LV_ALIGN_TOP_MID,0,263);
     lv_obj_t *txt=lv_label_create(test);
     lv_label_set_text(txt,"Preview now");
     lv_obj_center(txt);
     lv_obj_add_event_cb(test,[](lv_event_t *){Saver::start();},LV_EVENT_CLICKED,nullptr);
     lv_obj_t *hint=lv_label_create(content);
     lv_label_set_text(hint,"Touch to wake\nBlack mode turns off backlight");
-    lv_obj_align(hint,LV_ALIGN_TOP_MID,0,195);
+    lv_obj_align(hint,LV_ALIGN_TOP_MID,0,314);
+    lv_obj_add_flag(content,LV_OBJ_FLAG_SCROLLABLE);
   } else if (page == 7) {
     lv_obj_t *heading = lv_label_create(content);
     lv_label_set_text(heading, "Wireless Settings");
