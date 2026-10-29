@@ -164,115 +164,199 @@ static void render(lv_obj_t *parent) {
   title(column,"Note: screen-off is NOT ESP sleep. Board mA require an external meter.");
   lastUi=0;
 }
+// QMI8658C command protocol differs between older and newer firmware.
+// Waveshare's newer QMI8658C driver checks STATUSINT(0x2D).bit7 and
+// writes CTRL9=0 to acknowledge; earlier QST Rev 0.6 uses STATUS1(0x2F).bit0.
+// Do NOT read STATUS1 repeatedly while waiting for motion: it CLEARS the WoM
+// event and releases INT2 (datasheet section 9.3).
+static uint8_t lastStatusInt=0, lastStatus1=0, sensorRevision=0;
+static uint8_t ctrl1AtWom=0;
+static const char *commandProtocol="not run";
+static uint32_t probeLastReport=0;
+
 static bool womWrite(uint8_t reg,uint8_t val,const char *step) {
   if(MotionWake::writeReg(reg,val))return true;
-  setNotice(String("WoM I2C failure: ")+step);
+  setNotice(String("WoM I2C WRITE FAIL: ")+step+
+            " reg=0x"+String(reg,HEX));
   return false;
 }
-static bool womCommandDone() {
+static bool commandWoM(bool reportError) {
+  if(!MotionWake::writeReg(0x0A,0x08)) {
+    if(reportError)setNotice("WoM CTRL9 0x08 write FAILED");
+    return false;
+  }
   const uint32_t started=millis();
-  while(millis()-started<800) {
-    uint8_t status=0;
-    if(!MotionWake::readRegs(0x2F,&status,1)) {
-      setNotice("WoM STATUS1 I2C read failure");
+  bool modern=false,legacy=false;
+  // Prefer modern QMI8658C firmware status and acknowledge sequence.
+  // Poll legacy CMD_DONE as well, so older chips are supported.
+  while(millis()-started<650) {
+    uint8_t v=0;
+    if(!MotionWake::readRegs(0x2D,&v,1)){
+      if(reportError)setNotice("WoM STATUSINT 0x2D I2C read FAILED");
       return false;
     }
-    lastWomStatus=status;
-    if(status & 0x01)return true;
-    delay(5);
+    lastStatusInt=v;
+    if(v&0x80){modern=true;break;}
+    if(!MotionWake::readRegs(0x2F,&v,1)){
+      if(reportError)setNotice("WoM STATUS1 0x2F I2C read FAILED");
+      return false;
+    }
+    lastStatus1=v;
+    if(v&0x01){legacy=true;break;}
+    delay(4);
   }
-  setNotice(String("WoM CTRL9 timeout: STATUS1=0x")+
-    String(lastWomStatus,HEX)+" INT1="+String(digitalRead(13)));
-  return false;
+  if(!modern && !legacy){
+    commandProtocol="no completion";
+    if(reportError)setNotice(String("WoM CTRL9 timeout: 2D=0x")+
+      String(lastStatusInt,HEX)+" 2F=0x"+String(lastStatus1,HEX));
+    return false;
+  }
+  commandProtocol=modern?"modern 2D.bit7":"legacy 2F.bit0";
+  // New protocol requires the explicit 0x00 ACK, unlike the old protocol.
+  if(modern){
+    if(!MotionWake::writeReg(0x0A,0x00)){
+      if(reportError)setNotice("WoM CTRL9 ACK 0x00 FAILED");
+      return false;
+    }
+    const uint32_t ackStart=millis();
+    bool cleared=false;
+    while(millis()-ackStart<350){
+      uint8_t v=0;
+      if(!MotionWake::readRegs(0x2D,&v,1)){
+        if(reportError)setNotice("WoM ACK verify 0x2D read FAILED");
+        return false;
+      }
+      lastStatusInt=v;
+      if((v&0x80)==0){cleared=true;break;}
+      delay(4);
+    }
+    if(!cleared){
+      if(reportError)setNotice(String("WoM ACK stayed HIGH: 2D=0x")+
+          String(lastStatusInt,HEX));
+      return false;
+    }
+  }
+  Serial.printf("[POWER] WoM CMD_DONE via %s (2D=%02X 2F=%02X, ms=%lu)\n",
+    commandProtocol,lastStatusInt,lastStatus1,(unsigned long)(millis()-started));
+  return true;
 }
 static void restoreImu() {
-  // QMI8658C section 9.6: exit WoM by disabling sensors, zeroing
-  // the WoM threshold and issuing CTRL9, before re-enabling accel.
+  if(!MotionWake::ready)return;
+  // QMI datasheet section 9.6: stop accelerometer and send WoM threshold
+  // of zero to exit the mode. Restore the already-tested polling settings.
   MotionWake::writeReg(0x08,0x00);
   MotionWake::writeReg(0x0B,0x00);
-  MotionWake::writeReg(0x0A,0x08);
-  uint8_t status=0;
-  const uint32_t started=millis();
-  while(millis()-started<400) {
-    if(MotionWake::readRegs(0x2F,&status,1) && (status&0x01))break;
-    delay(5);
-  }
-  MotionWake::writeReg(0x02,0x40);
-  MotionWake::writeReg(0x03,0x26);
-  MotionWake::writeReg(0x08,0x01);
+  (void)commandWoM(false);
+  MotionWake::writeReg(0x02,0x40); // original tested CTRL1; INT2 output disabled
+  MotionWake::writeReg(0x03,0x26); // +/-8g, 125Hz
+  MotionWake::writeReg(0x08,0x01); // accel on
   MotionWake::configure(Saver::motionEnabled||Saver::returnSleepEnabled,
                         Saver::motionSensitivity);
+  Serial.println("[POWER] QMI8658 normal polling mode restored");
 }
 static bool configWoM(uint8_t mg) {
   if(!MotionWake::ready) {
-    setNotice("WoM failed: QMI8658 not detected.");
+    setNotice("WoM blocked: QMI8658 not detected.");
     return false;
   }
-  // Datasheet section 9: +/-2g at 21Hz low power;
-  // CAL1_H=0x48: INT2 initially LOW, 8 samples of blanking.
-  if(!womWrite(0x08,0x00,"CTRL7 disable") ||
-     !womWrite(0x03,0x0D,"CTRL2 low-power") ||
-     !womWrite(0x0B,mg,"CAL1_L threshold") ||
-     !womWrite(0x0C,0x48,"CAL1_H INT2") ||
-     !womWrite(0x0A,0x08,"CTRL9 WoM"))return false;
-  if(!womCommandDone())return false;
-  if(!womWrite(0x08,0x01,"CTRL7 accel enable"))return false;
-  delay(60);
+  if(!MotionWake::readRegs(0x01,&sensorRevision,1)){
+    setNotice("WoM: cannot read chip revision 0x01.");
+    return false;
+  }
+  // INT2 enable (CTRL1 bit4) is required by Waveshare's *newer* driver.
+  // Preserve SPI_AI (bit6), which the existing motion driver uses.
+  uint8_t ctrl1=0;
+  if(!MotionWake::readRegs(0x02,&ctrl1,1)){
+    setNotice("WoM: cannot read CTRL1 0x02.");
+    return false;
+  }
+  if(!womWrite(0x08,0x00,"CTRL7 stop sensors") ||
+     !womWrite(0x02,ctrl1 | 0x10,"CTRL1 INT2 enable") ||
+     !womWrite(0x03,0x0D,"CTRL2 +/-2g 21Hz low-power") ||
+     !womWrite(0x0B,mg,"CAL1_L threshold mg") ||
+     !womWrite(0x0C,0x48,"CAL1_H INT2 idle LOW 8 samples"))
+    return false;
+  if(!commandWoM(true))return false;
+  if(!womWrite(0x08,0x01,"CTRL7 accelerometer ON"))return false;
+  delay(90);
   uint8_t ctrl7=0;
-  if(!MotionWake::readRegs(0x08,&ctrl7,1)) {
-    setNotice("WoM CTRL7 verification read failed.");
+  if(!MotionWake::readRegs(0x08,&ctrl7,1) ||
+     !MotionWake::readRegs(0x02,&ctrl1AtWom,1)) {
+    setNotice("WoM: CTRL7/CTRL1 verification I2C failed.");
     return false;
   }
-  Serial.printf("[POWER] WoM: threshold=%u mg CTRL7=0x%02X INT1=%d INT2=%d\n",
-    (unsigned)mg,ctrl7,digitalRead(13),digitalRead(12));
-  if((ctrl7&1)==0) {
-    setNotice("WoM failed: accel enable bit is LOW.");
+  if((ctrl7&0x01)==0){
+    setNotice(String("WoM: accel enable did not stick. CTRL7=0x")+
+              String(ctrl7,HEX));
     return false;
   }
+  Serial.printf("[POWER] WoM READY: chip rev=0x%02X, CTRL1=0x%02X, CTRL7=0x%02X, threshold=%u mg, INT1=%d INT2=%d\n",
+    sensorRevision,ctrl1AtWom,ctrl7,(unsigned)mg,digitalRead(13),digitalRead(12));
   return true;
 }
 static bool clearStaleMotion() {
+  // The selected INT2 is low before the first WoM event. An existing HIGH
+  // signal must be acknowledged or ESP32 EXT0 would wake instantly.
   if(digitalRead(12)==LOW)return true;
   uint8_t status=0;
-  if(!MotionWake::readRegs(0x2F,&status,1)) {
-    setNotice("INT2 HIGH and STATUS1 unreadable.");
+  if(!MotionWake::readRegs(0x2F,&status,1)){
+    setNotice("WoM: INT2 HIGH and STATUS1 unreadable.");
     return false;
   }
-  lastWomStatus=status;
-  delay(80);
-  if(digitalRead(12)==LOW)return true;
-  setNotice(String("INT2 stuck HIGH: STATUS1=0x")+
-            String(status,HEX)+". Could not arm wake.");
+  lastStatus1=status;
+  delay(60);
+  if(digitalRead(12)==LOW){
+    Serial.printf("[POWER] Cleared stale WoM event STATUS1=0x%02X\n",status);
+    return true;
+  }
+  setNotice(String("WoM: INT2 stays HIGH; status=0x")+
+            String(status,HEX)+" CTRL1=0x"+String(ctrl1AtWom,HEX));
   return false;
 }
 static void startProbe() {
-  if(!configWoM(womThresholdMg) || !clearStaleMotion()) {
+  // This is intentionally an AWAKE hardware IRQ test. The LCD stays ON.
+  if(!configWoM(womThresholdMg) || !clearStaleMotion()){
     restoreImu();
     return;
   }
-  // Pause normal accelerometer polling while the IMU is in WoM mode.
   MotionWake::configure(false,Saver::motionSensitivity);
   probeActive=true;
   probeStarted=millis();
-  setNotice("WoM probe ARMED. Move remote now (15s timeout).");
+  probeLastReport=0;
+  setNotice(String("WoM ARMED (screen stays ON). Move within 15s. Protocol: ")+
+            commandProtocol);
 }
 static void probeTick(uint32_t now) {
   if(!probeActive)return;
   const bool irq=digitalRead(12)==HIGH;
-  uint8_t status=0;
-  if(!MotionWake::readRegs(0x2F,&status,1)) {
+  // Check GPIO FIRST. Reading STATUS1 clears the event/IRQ on the chip.
+  if(irq){
+    uint8_t status=0;
+    bool ok=MotionWake::readRegs(0x2F,&status,1);
     probeActive=false;
     restoreImu();
-    setNotice("WoM probe I2C read failed.");
-  } else if(irq || (status & 0x04)) {
+    if(ok)setNotice(String("SUCCESS: INT2 rose HIGH; WoM status=0x")+
+                    String(status,HEX)+" (bit2="+String((status&0x04)?1:0)+")");
+    else setNotice("INT2 went HIGH, but STATUS1 read failed.");
+    return;
+  }
+  if(now-probeStarted>=15000){
+    uint8_t status=0;
+    const bool ok=MotionWake::readRegs(0x2F,&status,1);
     probeActive=false;
     restoreImu();
-    setNotice(String("WoM TRIGGERED! INT2=")+String(irq?1:0)+
-      " STATUS1=0x"+String(status,HEX)+". IMU restored.");
-  } else if(now-probeStarted>=15000) {
-    probeActive=false;
-    restoreImu();
-    setNotice("WoM probe timed out: no motion interrupt.");
+    setNotice(String("TIMEOUT: INT2 did not rise; 2F=")+
+              (ok?String(status,HEX):String("I2C fail"))+
+              " CTRL1=0x"+String(ctrl1AtWom,HEX)+
+              " CMD="+commandProtocol);
+    return;
+  }
+  if(now-probeLastReport>=1000){
+    probeLastReport=now;
+    if(notice)lv_label_set_text_fmt(notice,
+      "WoM ARMED; screen stays ON.\nMove now. %lus left\nINT2=%d rev=%02X CTRL1=%02X\nCMD: %s",
+      (unsigned long)(15-(now-probeStarted)/1000),digitalRead(12),
+      sensorRevision,ctrl1AtWom,commandProtocol);
   }
 }
 static bool holdBatteryLatch() {
