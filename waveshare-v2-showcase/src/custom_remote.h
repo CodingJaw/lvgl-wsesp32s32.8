@@ -25,7 +25,8 @@ static void begin(){
 }
 static String escape(const String &s){
   String out;
-  for(char c:s){
+  for(size_t i=0;i<s.length();++i){
+    char c=s[i];
     if(c=='&')out+="&amp;";
     else if(c=='<')out+="&lt;";
     else if(c=='>')out+="&gt;";
