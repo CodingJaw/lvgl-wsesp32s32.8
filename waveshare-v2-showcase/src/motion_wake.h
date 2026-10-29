@@ -11,6 +11,9 @@ static int16_t ax=0,ay=0,az=0;
 static uint32_t lastPoll=0,lastTrigger=0;
 static uint8_t sensitivity=1; // 0 gentle, 1 normal, 2 strong movement
 static bool enabled=false;
+static bool fresh=false;
+static int16_t previousX=0,previousY=0,previousZ=0;
+static int32_t deltaMagnitude=0;
 static bool writeReg(uint8_t reg,uint8_t value) {
   imuBus.beginTransmission(ADDR);
   imuBus.write(reg);imuBus.write(value);
@@ -34,6 +37,7 @@ static void begin() {
   Serial.printf("[IMU] QMI8658: %s (id=0x%02x)\n",ready?"ready":"not detected",id);
 }
 static bool poll() {
+  fresh=false;
   if(!ready || !enabled)return false;
   uint32_t now=millis();
   if(now-lastPoll<60)return false;
@@ -48,6 +52,8 @@ static bool poll() {
   // remote will not trigger, even when resting at an angle.
   int32_t dx=int32_t(x)-ax,dy=int32_t(y)-ay,dz=int32_t(z)-az;
   ax=x;ay=y;az=z;
+  fresh=true;
+  deltaMagnitude=(int32_t)sqrtf(float(int64_t(dx)*dx+int64_t(dy)*dy+int64_t(dz)*dz));
   const int32_t thresholds[]={360,750,1400}; // ~0.09g, 0.18g, 0.34g @ +/-8g
   int32_t threshold=thresholds[sensitivity<3?sensitivity:1];
   bool moved=(int64_t(dx)*dx+int64_t(dy)*dy+int64_t(dz)*dz)>int64_t(threshold)*threshold;
@@ -57,5 +63,6 @@ static bool poll() {
 static void configure(bool on,uint8_t level){
   enabled=on;sensitivity=level<3?level:1;
   hasSample=false;
+  fresh=false;
 }
 }
