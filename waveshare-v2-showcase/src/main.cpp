@@ -7,6 +7,7 @@
 #include "room_photos.h"
 #include "wifi_portal.h"
 #include "screensaver.h"
+#include "power_tests.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -564,6 +565,7 @@ static void open_full_scene() {
 static void show_page(int page) {
   close_scene_overlay();
   current_page = page;
+  PowerTests::detach();
   diag_label = nullptr;
   network_status_label = nullptr;
   scene_image = nullptr;
@@ -847,7 +849,9 @@ static void show_page(int page) {
       scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
     }
-  } else if(page==10 && CustomRemote::enabled){
+  } else if(page==10){
+    PowerTests::render(content);
+  } else if(page==11 && CustomRemote::enabled){
     CustomRemote::render(content);
   } else {
     diag_label = lv_label_create(content);
@@ -866,6 +870,7 @@ void setup() {
   // Keep the battery power latch asserted (same as the working swipe branch).
   pinMode(7, OUTPUT);
   digitalWrite(7, HIGH);
+  PowerTests::unholdBatteryLatch();
   pinMode(5, OUTPUT);
   digitalWrite(5, LOW);
   lcd->begin(40000000);
@@ -902,12 +907,12 @@ void setup() {
   lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Saver", "Diag"};
-  for (int i = 0; i < (CustomRemote::enabled?11:10); ++i) {
+  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Saver", "Diag", "Power"};
+  for (int i = 0; i < (CustomRemote::enabled?12:11); ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
-    lv_label_set_text(label, i==10?CustomRemote::title.c_str():names[i]);
+    lv_label_set_text(label, i==11?CustomRemote::title.c_str():names[i]);
     lv_obj_center(label);
     lv_obj_add_event_cb(btn, nav_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<intptr_t>(i)));
   }
@@ -932,6 +937,7 @@ void setup() {
   }
   WifiPortal::begin();
   Saver::begin();
+  PowerTests::begin();
   show_page(0);
   last_tick = millis();
   Serial.printf("LVGL showcase initialized; touch enabled: %s\n", TOUCH_READY ? "yes" : "no");
@@ -941,7 +947,7 @@ void loop() {
   WifiPortal::loop();
   if(CustomRemote::changed){
     CustomRemote::changed=false;
-    if(current_page==10 && CustomRemote::enabled)show_page(10);
+    if(current_page==11 && CustomRemote::enabled)show_page(11);
   }
   if (Backgrounds::changed && !scene_overlay && !scene_animating) {
     Backgrounds::changed = false;
@@ -951,6 +957,7 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
+  PowerTests::tick(touch_pressed);
   Saver::tick(touch_pressed,scene_animating || drag_active);
   if(Saver::active || Saver::suppressTouch) {
     delay(5);
