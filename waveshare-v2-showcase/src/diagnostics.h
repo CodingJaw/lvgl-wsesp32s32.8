@@ -73,7 +73,7 @@ static lv_obj_t *makeReading(lv_obj_t *parent) {
 static lv_obj_t *miniButton(lv_obj_t *parent,const char *label,
                             lv_event_cb_t handler) {
   lv_obj_t *b=lv_button_create(parent);
-  lv_obj_set_width(b,68);
+  lv_obj_set_width(b,60);
   lv_obj_set_height(b,31);
   lv_obj_t *t=lv_label_create(b);
   lv_label_set_text(t,label);
@@ -158,7 +158,7 @@ static void render(lv_obj_t *parent,
   miniButton(toolbar,"Reset",[](lv_event_t *){
     resetCounters();
     if(chart && motionSeries){
-      lv_chart_set_point_count(chart,30);
+      lv_chart_set_all_value(chart,motionSeries,0);
       lv_chart_refresh(chart);
     }
   });
@@ -230,7 +230,16 @@ static void tick(uint32_t now,uint32_t flushCalls,uint32_t flushPixels,
                  uint32_t flushMicros,uint32_t flushMaxUs,bool screensaverActive) {
   if(!active || screensaverActive)return;
   ++loopCount;
-  if(paused)return;
+  if(paused){
+    // Keep a fresh counter baseline so Resume does not report a spike
+    // caused by graphics work that occurred while the display was paused.
+    flushCountBaseline=flushCalls;
+    flushPixelBaseline=flushPixels;
+    flushTimeBaseline=flushMicros;
+    lastTickMs=now;
+    loopCount=0;
+    return;
+  }
   if((uint32_t)(now-lastTickMs)<300)return;
   const uint32_t elapsed=now-lastTickMs;
   loopPerSecond=elapsed?(loopCount*1000UL/elapsed):0;
