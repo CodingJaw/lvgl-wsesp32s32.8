@@ -128,18 +128,16 @@ static bool last_scene_cached = false;
 static uint8_t photo_display_mode = 1;
 static lv_image_dsc_t photo_direct_dsc[2][4] = {};
 static bool scene_using_direct = false;
-static bool uploaded_jpeg_present[4] = {};
+
 static void refresh_uploaded_images() {
   if (scene_animating || drag_active) return;
   for (int i=0;i<4;++i) {
-    uploaded_jpeg_present[i] = Backgrounds::exists(i);
     // Descriptors point into these buffers. Close the viewer before clearing.
-    if (photo_cache[1][i]) {
-      free(photo_cache[1][i]);
-      photo_cache[1][i]=nullptr;
+    for (int fmt=0;fmt<2;++fmt) {
+      if(photo_cache[fmt][i]) { free(photo_cache[fmt][i]);photo_cache[fmt][i]=nullptr; }
+      photo_cache_valid[fmt][i]=false;
+      photo_direct_dsc[fmt][i]={};
     }
-    photo_cache_valid[1][i]=false;
-    photo_direct_dsc[1][i] = {};
   }
 }
 static bool scene_old_using_direct = false;
@@ -200,15 +198,21 @@ static void decode_room_photo(int kind) {
   last_decode_ok = false;
   if (scene_format == 1) {
     const RoomPhoto &asset = room_png[kind];
-    if (room_png_decoder.openRAM((uint8_t *)asset.data, asset.size, room_png_draw) == PNG_SUCCESS) {
+    uint8_t *custom=nullptr;
+    size_t customLength=0;
+    bool hasCustom=Backgrounds::read(kind,"png",&custom,&customLength);
+    uint8_t *bytes=hasCustom?custom:(uint8_t *)asset.data;
+    size_t length=hasCustom?customLength:asset.size;
+    if (room_png_decoder.openRAM(bytes, length, room_png_draw) == PNG_SUCCESS) {
       last_decode_ok = room_png_decoder.decode(nullptr, 0) == PNG_SUCCESS;
       room_png_decoder.close();
     }
+    if(custom)free(custom);
   } else if (scene_format == 2) {
     const RoomPhoto &asset = room_jpg[kind];
     uint8_t *custom = nullptr;
     size_t customLength = 0;
-    bool hasCustom = Backgrounds::read(kind, &custom, &customLength);
+    bool hasCustom = Backgrounds::read(kind, "jpg", &custom, &customLength);
     uint8_t *bytes = hasCustom ? custom : (uint8_t *)asset.data;
     size_t length = hasCustom ? customLength : asset.size;
     if (room_jpg_decoder.openRAM(bytes, length, room_jpg_draw)) {
@@ -243,7 +247,14 @@ static void render_scene(int kind, int detail) {
       if (scene_image) lv_obj_invalidate(scene_image);
       return;
     }
-    decode_room_photo(kind);
+    String solid=Backgrounds::color(kind);
+    if(solid.length()==6) {
+      uint32_t rgb=strtoul(solid.c_str(),nullptr,16);
+      uint16_t pixel=rgb565((rgb>>16)&255,(rgb>>8)&255,rgb&255);
+      for(size_t i=0;i<size_t(IMG_W)*IMG_H;++i)scene_pixels[i]=pixel;
+      last_decode_ok=true;
+      last_scene_ms=0;
+    } else decode_room_photo(kind);
     if (photo_cache_enabled && last_decode_ok) {
       if (!photo_cache[format][kind])
         photo_cache[format][kind] = static_cast<uint16_t *>(ps_malloc(PHOTO_BYTES));
