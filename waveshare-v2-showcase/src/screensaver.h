@@ -12,6 +12,32 @@ static bool motionEnabled=false;
 static uint8_t motionSensitivity=1;
 static uint32_t motionHoldSec=60;
 static uint32_t motionHoldUntil=0;
+static bool returnSleepEnabled=false;
+static uint8_t returnAngle=1;
+static uint32_t returnDelaySec=3;
+static bool referenceValid=false, movedAway=false, returnMatch=false;
+static int16_t refX=0,refY=0,refZ=0;
+static uint32_t matchingSince=0;
+static bool closeToReference(){
+  if(!referenceValid || !MotionWake::hasSample)return false;
+  const float dot=float(refX)*MotionWake::ax+float(refY)*MotionWake::ay+float(refZ)*MotionWake::az;
+  const float a2=float(refX)*refX+float(refY)*refY+float(refZ)*refZ;
+  const float b2=float(MotionWake::ax)*MotionWake::ax+float(MotionWake::ay)*MotionWake::ay+float(MotionWake::az)*MotionWake::az;
+  if(a2<1000000.0f || b2<1000000.0f || dot<=0)return false;
+  const float cosLimit[]={0.98480775f,0.93969262f,0.86602540f};
+  const float c=cosLimit[returnAngle<3?returnAngle:1];
+  return dot*dot>=a2*b2*c*c;
+}
+static void setReturnSleep(bool on,uint8_t angle,uint32_t seconds){
+  returnSleepEnabled=on;
+  returnAngle=angle<3?angle:1;
+  returnDelaySec=(seconds==2||seconds==3||seconds==5||seconds==10)?seconds:3;
+  prefs.putBool("returnSleep",on);
+  prefs.putUChar("returnAngle",returnAngle);
+  prefs.putUInt("returnDelay",returnDelaySec);
+  matchingSince=0;returnMatch=false;
+}
+
 static uint32_t lastActivity=0, lastFrame=0;
 static bool active=false, suppressTouch=false, wakeArmed=false, wakeRequested=false;
 static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
@@ -28,8 +54,13 @@ static void begin(){
   if(motionSensitivity>2)motionSensitivity=1;
   motionHoldSec=prefs.getUInt("motionHold",60);
   if(motionHoldSec!=30 && motionHoldSec!=60 && motionHoldSec!=120 && motionHoldSec!=300)motionHoldSec=60;
+  returnSleepEnabled=prefs.getBool("returnSleep",false);
+  returnAngle=prefs.getUChar("returnAngle",1);
+  if(returnAngle>2)returnAngle=1;
+  returnDelaySec=prefs.getUInt("returnDelay",3);
+  if(returnDelaySec!=2&&returnDelaySec!=3&&returnDelaySec!=5&&returnDelaySec!=10)returnDelaySec=3;
   MotionWake::begin();
-  MotionWake::configure(motionEnabled,motionSensitivity);
+  MotionWake::configure(motionEnabled||returnSleepEnabled,motionSensitivity);
   lastActivity=millis();
 }
 static void setMotion(bool on,uint8_t level) {
@@ -37,7 +68,7 @@ static void setMotion(bool on,uint8_t level) {
   motionSensitivity=level<3?level:1;
   prefs.putBool("motion",motionEnabled);
   prefs.putUChar("motionLevel",motionSensitivity);
-  MotionWake::configure(motionEnabled,motionSensitivity);
+  MotionWake::configure(motionEnabled||returnSleepEnabled,motionSensitivity);
   if(!on)motionHoldUntil=0;
 }
 static void setMotionHold(uint32_t seconds){
@@ -67,9 +98,15 @@ static void stop(){
   }
   ledcWrite(5,brightness);
   lastActivity=millis();
+  matchingSince=0;
 }
 static void start(){
   if(active)return;
+  if(returnSleepEnabled && MotionWake::ready && MotionWake::hasSample){
+    refX=MotionWake::ax;refY=MotionWake::ay;refZ=MotionWake::az;
+    referenceValid=true;movedAway=false;
+  }
+  matchingSince=0;returnMatch=false;
   active=true;
   wakeRequested=false;
   wakeArmed=false; // Preview starts on button release; require a fresh touch.
@@ -107,13 +144,28 @@ static void tick(bool touching,bool inhibit){
     wakeArmed=true;
     if(suppressTouch)suppressTouch=false;
   }
-  if(motionEnabled && MotionWake::poll()) {
+  const bool movementEvent=MotionWake::poll();
+  if(motionEnabled && movementEvent) {
     // Every qualifying movement extends the pickup grace period.
     motionHoldUntil=now+motionHoldSec*1000UL;
     if(active && wakeArmed)wakeRequested=true;
     else if(!active)activity();
   }
   if(wakeRequested)stop();
+  if(returnSleepEnabled && referenceValid && !active && MotionWake::fresh){
+    const bool similar=closeToReference();
+    if(!similar)movedAway=true;
+    const bool settled=MotionWake::deltaMagnitude<220;
+    returnMatch=similar && settled;
+    if(movedAway && returnMatch && !touching && !inhibit){
+      if(!matchingSince)matchingSince=now;
+      else if((uint32_t)(now-matchingSince)>=returnDelaySec*1000UL){
+        motionHoldUntil=0;
+        start();
+        return;
+      }
+    }else matchingSince=0;
+  }
   if(touching)activity();
   if(inhibit){activity();return;}
   if(!active){
