@@ -13,7 +13,7 @@
 #include "wifi_portal.h"
 
 namespace PowerTests {
-enum Action : uint8_t { NONE, BACKLIGHT_10S, LIGHT_5S, DEEP_TIMER, DEEP_MOTION, HARD_OFF };
+enum Action : uint8_t { NONE, BACKLIGHT_10S, LIGHT_5S, DEEP_TIMER, DEEP_MOTION, HARD_OFF, WOM_PROBE };
 static RTC_DATA_ATTR uint32_t testMagic = 0;
 static RTC_DATA_ATTR uint8_t lastDeepTest = 0;
 static RTC_DATA_ATTR uint8_t lastWomMg = 0;
@@ -23,6 +23,11 @@ static uint32_t scheduledMs = 0;
 static uint32_t backlightUntil = 0;
 static bool allowHardOff = false;
 static uint8_t womThresholdMg = 80;
+static bool resumePowerTab = false;
+static bool probeActive = false;
+static uint32_t probeStarted = 0;
+static uint8_t lastWomStatus = 0;
+static void restoreImu();
 static lv_obj_t *live = nullptr;
 static lv_obj_t *notice = nullptr;
 static uint32_t lastUi = 0;
@@ -43,7 +48,8 @@ static const char *wakeName(esp_sleep_wakeup_cause_t why) {
 static void begin() {
   const esp_sleep_wakeup_cause_t why = esp_sleep_get_wakeup_cause();
   bootMessage = String(wakeName(why));
-  if (testMagic == MAGIC && lastDeepTest != 0) {
+  resumePowerTab = (testMagic == MAGIC && lastDeepTest != 0);
+  if (resumePowerTab) {
     if (lastDeepTest == DEEP_MOTION) {
       bootMessage += (why == ESP_SLEEP_WAKEUP_EXT0)
         ? " (QMI8658 INT2 motion)" : (why == ESP_SLEEP_WAKEUP_TIMER)
@@ -56,7 +62,13 @@ static void begin() {
   lastDeepTest = 0;
   pinMode(12, INPUT);
   pinMode(13, INPUT);
-  Serial.printf("[POWER] boot wake cause: %s\n", bootMessage.c_str());
+  pinMode(6, INPUT_PULLUP); // Waveshare Key_BAT / PWR SYS_OUT, active LOW
+  if(resumePowerTab && why != ESP_SLEEP_WAKEUP_UNDEFINED){
+    restoreImu(); // IMU could remain powered in WoM across deep-sleep reboot.
+    resultMessage = "Woke from deep sleep: " + bootMessage;
+  }
+  Serial.printf("[POWER] boot wake cause: %s, PWR6=%d\n",
+                bootMessage.c_str(),digitalRead(6));
 }
 
 static uint32_t batteryMilliVolts() {
@@ -65,6 +77,7 @@ static uint32_t batteryMilliVolts() {
 }
 
 static void detach() {
+  if(probeActive){probeActive=false;restoreImu();}
   live = nullptr;
   notice = nullptr;
   allowHardOff = false;
@@ -123,7 +136,7 @@ static void render(lv_obj_t *parent) {
   lv_label_set_text(notice,resultMessage.c_str());
   title(column,"Safe display / sleep checks");
   button(column,"Backlight OFF (10 sec)",BACKLIGHT_10S);
-  button(column,"Light sleep (5 sec)",LIGHT_5S);
+  button(column,"Light: touch/PWR/10s timeout",LIGHT_5S);
   button(column,"Deep sleep (15 sec timer)",DEEP_TIMER);
   title(column,"Motion wake: QMI8658 INT2 / GPIO12");
   lv_obj_t *options=lv_dropdown_create(column);
@@ -133,8 +146,9 @@ static void render(lv_obj_t *parent) {
     uint16_t selected=lv_dropdown_get_selected((lv_obj_t *)lv_event_get_target(e));
     womThresholdMg = selected==1?40:(selected==2?160:80);
   },LV_EVENT_VALUE_CHANGED,nullptr);
+  button(column,"IMU motion probe (no sleep)",WOM_PROBE);
   button(column,"Deep sleep: MOVE to wake",DEEP_MOTION);
-  title(column,"Motion test has a 60-second TIMER BACKUP. ESP32 reboots after wake.");
+  title(column,"Try IMU probe first. Deep motion has 60s timer backup; CPU reboots.");
   title(column,"Power latch: GPIO7 must stay HIGH during deep sleep.");
   title(column,"Hard power off (only PWR button or USB can start again)");
   lv_obj_t *confirm=lv_checkbox_create(column);
