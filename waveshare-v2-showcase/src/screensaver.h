@@ -7,7 +7,7 @@ static uint8_t mode=0; // 0 black, 1 clock, 2 bouncing dot, 3 starfield
 static uint32_t timeoutSec=60;
 static uint8_t brightness=128;
 static uint32_t lastActivity=0, lastFrame=0;
-static bool active=false, suppressTouch=false;
+static bool active=false, suppressTouch=false, wakeArmed=false;
 static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
 static lv_obj_t *returnScreen=nullptr;
 static int16_t x=50,y=80,vx=2,vy=2;
@@ -43,6 +43,7 @@ static void stop(){
 static void start(){
   if(active)return;
   active=true;
+  wakeArmed=false; // Preview starts on button release; require a fresh touch.
   if(mode==0){ledcWrite(5,0);return;}
   returnScreen=lv_screen_active();
   screen=lv_obj_create(nullptr);
@@ -71,8 +72,9 @@ static void start(){
 }
 static void tick(bool touching,bool inhibit){
   const uint32_t now=millis();
+  if(!touching)wakeArmed=true;
   if(touching){
-    if(active){stop();suppressTouch=true;}
+    if(active && wakeArmed){stop();suppressTouch=true;}
     activity();
   }else if(suppressTouch)suppressTouch=false;
   if(inhibit){activity();return;}
