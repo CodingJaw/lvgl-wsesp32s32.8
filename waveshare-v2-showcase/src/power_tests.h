@@ -2,7 +2,7 @@
 // Power lab for Waveshare ESP32-S3-Touch-LCD-2.8 V2.
 // Schematic: QMI8658 INT1=GPIO13, INT2=GPIO12, BAT_ADC=GPIO8,
 // SYS_EN/BAT_Control=GPIO7, backlight=GPIO5.
-// WoM sequence follows QMI8658C datasheet Rev 0.6 section 9.
+// WoM sequence follows QST datasheet Rev 0.6/0.9 and Waveshare newer driver.
 // Sleep wakeup requires keeping SYS_EN high. Hardware-off DOES NOT wake on motion.
 #include <Arduino.h>
 #include <lvgl.h>
@@ -26,7 +26,6 @@ static uint8_t womThresholdMg = 80;
 static bool resumePowerTab = false;
 static bool probeActive = false;
 static uint32_t probeStarted = 0;
-static uint8_t lastWomStatus = 0;
 static void restoreImu();
 static lv_obj_t *live = nullptr;
 static lv_obj_t *notice = nullptr;
