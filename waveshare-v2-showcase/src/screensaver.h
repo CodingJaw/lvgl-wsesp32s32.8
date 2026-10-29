@@ -1,0 +1,102 @@
+#pragma once
+#include <Preferences.h>
+#include <math.h>
+namespace Saver {
+static Preferences prefs;
+static uint8_t mode=0; // 0 black, 1 clock, 2 bouncing dot, 3 starfield
+static uint32_t timeoutSec=60;
+static uint8_t brightness=128;
+static uint32_t lastActivity=0, lastFrame=0;
+static bool active=false, suppressTouch=false;
+static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
+static int16_t x=50,y=80,vx=2,vy=2;
+static void begin(){
+  prefs.begin("screensaver",false);
+  mode=prefs.getUChar("mode",0);
+  if(mode>3)mode=0;
+  timeoutSec=prefs.getUInt("timeout",60);
+  if(timeoutSec>3600)timeoutSec=60;
+  lastActivity=millis();
+}
+static void save(uint8_t m,uint32_t timeout){
+  mode=m>3?0:m;
+  timeoutSec=timeout>3600?3600:timeout;
+  prefs.putUChar("mode",mode);
+  prefs.putUInt("timeout",timeoutSec);
+  lastActivity=millis();
+}
+static void activity(){lastActivity=millis();}
+static void stop(){
+  if(!active)return;
+  active=false;
+  if(screen){
+    lv_obj_t *old=screen;
+    screen=nullptr;label=nullptr;
+    lv_screen_load_anim(lv_screen_get_default(),LV_SCR_LOAD_ANIM_NONE,0,0,false);
+    lv_obj_delete(old);
+  }
+  ledcWrite(5,brightness);
+  lastActivity=millis();
+}
+static void start(){
+  if(active)return;
+  active=true;
+  if(mode==0){ledcWrite(5,0);return;}
+  screen=lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(screen,lv_color_black(),0);
+  lv_obj_set_style_bg_opa(screen,LV_OPA_COVER,0);
+  lv_obj_remove_flag(screen,LV_OBJ_FLAG_SCROLLABLE);
+  if(mode==1){
+    label=lv_label_create(screen);
+    lv_obj_set_style_text_color(label,lv_color_white(),0);
+    lv_obj_set_style_text_font(label,&lv_font_montserrat_28,0);
+    lv_obj_center(label);
+  }else{
+    const int count=mode==2?1:12;
+    for(int i=0;i<count;++i){
+      dots[i]=lv_obj_create(screen);
+      lv_obj_set_size(dots[i],mode==2?24:3,mode==2?24:3);
+      lv_obj_set_style_radius(dots[i],LV_RADIUS_CIRCLE,0);
+      lv_obj_set_style_border_width(dots[i],0,0);
+      lv_obj_set_style_pad_all(dots[i],0,0);
+      lv_obj_set_style_bg_color(dots[i],lv_color_white(),0);
+      lv_obj_set_pos(dots[i],(i*71+37)%240,(i*43+19)%320);
+    }
+  }
+  lv_screen_load(screen);
+  lastFrame=0;
+}
+static void tick(bool touching,bool inhibit){
+  const uint32_t now=millis();
+  if(touching){
+    if(active){stop();suppressTouch=true;}
+    activity();
+  }else if(suppressTouch)suppressTouch=false;
+  if(inhibit){activity();return;}
+  if(!active){
+    if(timeoutSec && (uint32_t)(now-lastActivity)>=timeoutSec*1000UL)start();
+    return;
+  }
+  if(mode==0 || now-lastFrame<80)return;
+  lastFrame=now;
+  if(mode==1 && label){
+    const uint32_t seconds=now/1000;
+    // Uptime is shown until network/NTP time is integrated.
+    lv_label_set_text_fmt(label,"Uptime\n%02lu:%02lu:%02lu",
+      (unsigned long)(seconds/3600),(unsigned long)((seconds/60)%60),
+      (unsigned long)(seconds%60));
+    lv_obj_center(label);
+  }else if(mode==2 && dots[0]){
+    x+=vx;y+=vy;
+    if(x<0||x>216){vx=-vx;x=constrain(x,0,216);}
+    if(y<0||y>296){vy=-vy;y=constrain(y,0,296);}
+    lv_obj_set_pos(dots[0],x,y);
+  }else if(mode==3){
+    for(int i=0;i<12;++i)if(dots[i]){
+      int xx=lv_obj_get_x(dots[i]), yy=lv_obj_get_y(dots[i])+1+(i%3);
+      if(yy>320){yy=0;xx=(xx+53+i*17)%240;}
+      lv_obj_set_pos(dots[i],xx,yy);
+    }
+  }
+}
+} // namespace Saver
