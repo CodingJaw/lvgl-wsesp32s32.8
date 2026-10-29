@@ -151,7 +151,7 @@ static void render(lv_obj_t *parent) {
   lv_obj_set_flex_grow(controls,1);
   lv_obj_set_flex_flow(controls,LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(controls,3,0);
-  lv_obj_set_style_pad_row(6,0);
+  lv_obj_set_style_pad_row(controls,6,0);
   lv_obj_set_scroll_dir(controls,LV_DIR_VER);
   title(controls,"Display / sleep");
   button(controls,"Backlight OFF (10 sec)",BACKLIGHT_10S);
