@@ -3,6 +3,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include "backgrounds.h"
+#include "custom_remote.h"
 
 // Local-only configuration portal. Wi-Fi is supported; Bluetooth is a
 // future feature and is deliberately NOT started by this module.
@@ -104,7 +105,7 @@ button{background:#2563eb;border:0;font-weight:bold}label{display:block}small{co
 <input type="password" name="password" minlength="8" maxlength="63" required>
 <small>Changing the hotspot password also changes the web login password (username: admin). You will need to reconnect.</small>
 <button>Update hotspot</button></form></section>
-<section><h2>Photos</h2><p><a style="color:#93c5fd" href="/backgrounds">Manage room backgrounds</a></p></section><section><h2>Bluetooth</h2><p>BLE pairing and discovery are not implemented yet.</p>
+<section><h2>Custom remote</h2><p><a style="color:#93c5fd" href="/custom">Edit custom buttons and layout</a></p></section><section><h2>Photos</h2><p><a style="color:#93c5fd" href="/backgrounds">Manage room backgrounds</a></p></section><section><h2>Bluetooth</h2><p>BLE pairing and discovery are not implemented yet.</p>
 <small>Bluetooth will be configured here after we add and test its firmware separately. This page does not activate a Bluetooth radio.</small></section>
 <small>Local HTTP only. Do not expose port 80 to the internet.</small></body></html>)HTML";
   server.send(200, "text/html; charset=utf-8", html);
@@ -163,7 +164,9 @@ static void begin() {
   startAp();
   startSta();
   Backgrounds::begin();
+  CustomRemote::begin();
   Backgrounds::installRoutes(server, authorized);
+  CustomRemote::installRoutes(server, authorized);
   server.on("/", HTTP_GET, home);
   server.on("/scan", HTTP_GET, scan);
   server.on("/wifi", HTTP_POST, saveWifi);
