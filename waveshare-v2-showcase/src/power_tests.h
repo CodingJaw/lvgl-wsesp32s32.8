@@ -123,45 +123,60 @@ static void title(lv_obj_t *parent, const char *s) {
 }
 static void render(lv_obj_t *parent) {
   detach();
-  lv_obj_t *column=lv_obj_create(parent);
-  lv_obj_set_size(column, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_all(column, 5, 0);
-  lv_obj_set_style_pad_row(column, 8, 0);
-  lv_obj_set_scroll_dir(column, LV_DIR_VER);
-  title(column, "POWER / SLEEP LAB");
-  live=lv_label_create(column);
+  // Important: the status/error labels stay FIXED and visible while the
+  // controls scroll. Previous version hid failure notices when scrolled.
+  lv_obj_t *panel=lv_obj_create(parent);
+  lv_obj_set_size(panel,LV_PCT(100),LV_PCT(100));
+  lv_obj_set_style_pad_all(panel,3,0);
+  lv_obj_set_style_pad_row(panel,4,0);
+  lv_obj_set_flex_flow(panel,LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(panel,LV_DIR_NONE);
+  title(panel,"POWER / SLEEP LAB");
+  live=lv_label_create(panel);
   lv_obj_set_width(live,LV_PCT(100));
   lv_label_set_long_mode(live,LV_LABEL_LONG_WRAP);
-  notice=lv_label_create(column);
+  lv_label_set_text(live,"Reading IMU and pins...");
+  notice=lv_label_create(panel);
   lv_obj_set_width(notice,LV_PCT(100));
+  lv_obj_set_height(notice,65);
   lv_label_set_long_mode(notice,LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_bg_color(notice,lv_color_hex(0xDBEDF9),0);
+  lv_obj_set_style_bg_opa(notice,LV_OPA_COVER,0);
+  lv_obj_set_style_text_color(notice,lv_color_hex(0x11243D),0);
+  lv_obj_set_style_pad_all(notice,3,0);
   lv_label_set_text(notice,resultMessage.c_str());
-  title(column,"Safe display / sleep checks");
-  button(column,"Backlight OFF (10 sec)",BACKLIGHT_10S);
-  button(column,"Light: touch/PWR/10s timeout",LIGHT_5S);
-  button(column,"Deep sleep (15 sec timer)",DEEP_TIMER);
-  title(column,"Motion wake: QMI8658 INT2 / GPIO12");
-  lv_obj_t *options=lv_dropdown_create(column);
+
+  lv_obj_t *controls=lv_obj_create(panel);
+  lv_obj_set_width(controls,LV_PCT(100));
+  lv_obj_set_flex_grow(controls,1);
+  lv_obj_set_flex_flow(controls,LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_all(controls,3,0);
+  lv_obj_set_style_pad_row(6,0);
+  lv_obj_set_scroll_dir(controls,LV_DIR_VER);
+  title(controls,"Display / sleep");
+  button(controls,"Backlight OFF (10 sec)",BACKLIGHT_10S);
+  button(controls,"Light: touch/PWR/10s timeout",LIGHT_5S);
+  button(controls,"Deep sleep (15 sec timer)",DEEP_TIMER);
+  title(controls,"QMI8658 INT2 / GPIO12");
+  lv_obj_t *options=lv_dropdown_create(controls);
   lv_obj_set_width(options,LV_PCT(100));
   lv_dropdown_set_options(options,"80 mg (default)\n40 mg (sensitive)\n160 mg (strong)");
+  lv_dropdown_set_selected(options,womThresholdMg==40?1:(womThresholdMg==160?2:0));
   lv_obj_add_event_cb(options,[](lv_event_t *e){
     uint16_t selected=lv_dropdown_get_selected((lv_obj_t *)lv_event_get_target(e));
-    womThresholdMg = selected==1?40:(selected==2?160:80);
+    womThresholdMg=selected==1?40:(selected==2?160:80);
   },LV_EVENT_VALUE_CHANGED,nullptr);
-  button(column,"Probe IMU: SCREEN STAYS ON",WOM_PROBE);
-  button(column,"Deep sleep: MOVE to wake",DEEP_MOTION);
-  title(column,"Probe checks IMU interrupt while AWAKE. Deep motion blanks the display ONLY if setup succeeds.");
-  title(column,"Deep motion has 60s timer fallback; the CPU restarts on wake.");
-  title(column,"Power latch: GPIO7 must stay HIGH during deep sleep.");
-  title(column,"Hard power off (only PWR button or USB can start again)");
-  lv_obj_t *confirm=lv_checkbox_create(column);
+  button(controls,"Probe IMU: SCREEN STAYS ON",WOM_PROBE);
+  button(controls,"Deep sleep: MOVE to wake",DEEP_MOTION);
+  title(controls,"Probe stays awake; deep sleep blanks only when armed. The deep motion test has a 60s timer backup.");
+  title(controls,"Hardware off: PWR key required to restart.");
+  lv_obj_t *confirm=lv_checkbox_create(controls);
   lv_checkbox_set_text(confirm,"Allow hardware power OFF");
   lv_obj_add_event_cb(confirm,[](lv_event_t *e){
-    allowHardOff = lv_obj_has_state((lv_obj_t *)lv_event_get_target(e),LV_STATE_CHECKED);
+    allowHardOff=lv_obj_has_state((lv_obj_t *)lv_event_get_target(e),LV_STATE_CHECKED);
   },LV_EVENT_VALUE_CHANGED,nullptr);
-  button(column,"SYS_EN LOW: power OFF",HARD_OFF);
-  title(column,"Note: screen-off is NOT ESP sleep. Board mA require an external meter.");
+  button(controls,"SYS_EN LOW: power OFF",HARD_OFF);
+  title(controls,"GPIO7 latch held HIGH across deep sleep. External meter required for current measurements.");
   lastUi=0;
 }
 // QMI8658C command protocol differs between older and newer firmware.
@@ -472,10 +487,10 @@ static void tick(bool touching) {
   if(live && now-lastUi>=700) {
     lastUi=now;
     lv_label_set_text_fmt(live,
-      "Boot wake: %s\nBattery: ~%lu mV (GPIO8)\nIMU: %s | INT1/13=%d INT2/12=%d\nPWR/6=%d TP/4=%d SYS_EN/7=%d | Heap: %lu KB",
-      bootMessage.c_str(),(unsigned long)batteryMilliVolts(),
-      MotionWake::ready?"detected":"missing",digitalRead(13),digitalRead(12),
-      digitalRead(6),digitalRead(4),digitalRead(7),(unsigned long)(ESP.getFreeHeap()/1024));
+      "Wake: %s\nIMU:%s INT2:%d INT1:%d\nPWR:%d TP:%d BAT:%lumV",
+      bootMessage.c_str(),MotionWake::ready?"OK":"FAIL",
+      digitalRead(12),digitalRead(13),digitalRead(6),digitalRead(4),
+      (unsigned long)batteryMilliVolts());
   }
   if(pending==NONE || (int32_t)(now-scheduledMs)<0)return;
   const Action a=pending;
