@@ -717,18 +717,54 @@ static void show_page(int page) {
       uint16_t i=lv_dropdown_get_selected(lv_event_get_target_obj(e));
       if(i<4)Saver::setMotionHold(values[i]);
     },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *returnLabel=lv_label_create(content);
+    lv_label_set_text(returnLabel,"Sleep when put back down");
+    lv_obj_align(returnLabel,LV_ALIGN_TOP_LEFT,4,310);
+    lv_obj_t *returnSwitch=lv_switch_create(content);
+    lv_obj_align(returnSwitch,LV_ALIGN_TOP_RIGHT,-4,303);
+    if(Saver::returnSleepEnabled)lv_obj_add_state(returnSwitch,LV_STATE_CHECKED);
+    lv_obj_add_event_cb(returnSwitch,[](lv_event_t *e){
+      Saver::setReturnSleep(lv_obj_has_state(lv_event_get_target_obj(e),LV_STATE_CHECKED),
+        Saver::returnAngle,Saver::returnDelaySec);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *angleLabel=lv_label_create(content);
+    lv_label_set_text(angleLabel,"Match resting angle");
+    lv_obj_align(angleLabel,LV_ALIGN_TOP_MID,0,354);
+    lv_obj_t *angleDropdown=lv_dropdown_create(content);
+    lv_dropdown_set_options(angleDropdown,"Precise (10 deg)\nNormal (20 deg)\nLoose (30 deg)");
+    lv_dropdown_set_selected(angleDropdown,Saver::returnAngle);
+    lv_obj_set_width(angleDropdown,195);
+    lv_obj_align(angleDropdown,LV_ALIGN_TOP_MID,0,377);
+    lv_obj_add_event_cb(angleDropdown,[](lv_event_t *e){
+      Saver::setReturnSleep(Saver::returnSleepEnabled,
+        lv_dropdown_get_selected(lv_event_get_target_obj(e)),Saver::returnDelaySec);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
+    lv_obj_t *delayLabel=lv_label_create(content);
+    lv_label_set_text(delayLabel,"Still in position for");
+    lv_obj_align(delayLabel,LV_ALIGN_TOP_MID,0,427);
+    lv_obj_t *delayDropdown=lv_dropdown_create(content);
+    lv_dropdown_set_options(delayDropdown,"2 seconds\n3 seconds\n5 seconds\n10 seconds");
+    const uint32_t delayValues[]={2,3,5,10};
+    for(int i=0;i<4;++i)if(Saver::returnDelaySec==delayValues[i])lv_dropdown_set_selected(delayDropdown,i);
+    lv_obj_set_width(delayDropdown,195);
+    lv_obj_align(delayDropdown,LV_ALIGN_TOP_MID,0,450);
+    lv_obj_add_event_cb(delayDropdown,[](lv_event_t *e){
+      static const uint32_t values[]={2,3,5,10};
+      uint16_t i=lv_dropdown_get_selected(lv_event_get_target_obj(e));
+      if(i<4)Saver::setReturnSleep(Saver::returnSleepEnabled,Saver::returnAngle,values[i]);
+    },LV_EVENT_VALUE_CHANGED,nullptr);
     lv_obj_t *imuStatus=lv_label_create(content);
     lv_label_set_text(imuStatus,MotionWake::ready?"Motion sensor ready":"Motion sensor unavailable");
-    lv_obj_align(imuStatus,LV_ALIGN_TOP_MID,0,310);
+    lv_obj_align(imuStatus,LV_ALIGN_TOP_MID,0,500);
     lv_obj_t *test=lv_button_create(content);
-    lv_obj_align(test,LV_ALIGN_TOP_MID,0,340);
+    lv_obj_align(test,LV_ALIGN_TOP_MID,0,530);
     lv_obj_t *txt=lv_label_create(test);
     lv_label_set_text(txt,"Preview now");
     lv_obj_center(txt);
     lv_obj_add_event_cb(test,[](lv_event_t *){Saver::start();},LV_EVENT_CLICKED,nullptr);
     lv_obj_t *hint=lv_label_create(content);
     lv_label_set_text(hint,"Touch to wake\nBlack mode turns off backlight");
-    lv_obj_align(hint,LV_ALIGN_TOP_MID,0,393);
+    lv_obj_align(hint,LV_ALIGN_TOP_MID,0,583);
     lv_obj_add_flag(content,LV_OBJ_FLAG_SCROLLABLE);
   } else if (page == 7) {
     lv_obj_t *heading = lv_label_create(content);
