@@ -668,7 +668,7 @@ static void show_page(int page) {
     lv_label_set_text(heading,"Screensaver");
     lv_obj_align(heading,LV_ALIGN_TOP_MID,0,0);
     lv_obj_t *choice=lv_dropdown_create(content);
-    lv_dropdown_set_options(choice,"Black screen (backlight off)\nUptime clock\nBouncing dot\nStarfield\nClassic Lines\nClassic Bubbles\nClassic Starfield");
+    lv_dropdown_set_options(choice,"Black screen (backlight off)\nUptime clock\nBouncing dot\nStarfield\nAnalog clock\nDigital clock (12-hour)\nDigital clock (24-hour)");
     lv_dropdown_set_selected(choice,Saver::mode);
     lv_obj_set_width(choice,195);
     lv_obj_align(choice,LV_ALIGN_TOP_MID,0,35);
