@@ -70,3 +70,60 @@ Earlier results: backlight woke by touch only; light sleep returned on its timer
 Serial monitor command: platformio device monitor -p /dev/ttyACM0 -b 115200. Collect [POWER] lines.
 
 Caution: light-sleep touch wake requires active-low idle-high CST3530 IRQ. GPIO4 is skipped if already LOW when arming. Real battery current still requires external measurement.
+
+
+## WoM driver rework after unsuccessful motion tests
+
+Two successive attempts to arm WoM did not enter deep sleep on the physical
+Waveshare V2. The IMU probe also showed no successful interrupt event.
+
+**Root-cause hypothesis (requires hardware retest):** the previous implementation
+was coded for QMI8658C datasheet Rev 0.6 CTRL9 handshake, waiting only for
+STATUS1 (0x2F) bit 0. The later QMI8658C Rev 0.9 datasheet and Waveshare's
+own QMI8658C driver use STATUSINT (0x2D) bit 7 and a CTRL9=0x00
+acknowledgment. Manufacturer driver also enables INT2 output with
+CTRL1 bit 4. Either mismatch could prevent motion interrupts.
+
+### Changes
+
+- CTRL9 WoM command now waits for the newer STATUSINT 0x2D.bit7 and sends
+  CTRL9=0x00 ACK and waits for flag clear. Legacy 0x2F.bit0 completion can
+  still be recognized for older sensor firmware.
+- CTRL1 bit4 (INT2 output-enable from Waveshare driver) is enabled while
+  configuring WoM, then CTRL1 is restored to 0x40 afterward.
+- The awake probe **does not turn the display off**; it now samples GPIO12
+  before reading STATUS1. QMI8658C datasheet says reading STATUS1 clears
+  the WoM event and deasserts the interrupt; repeatedly polling STATUS1
+  could hide interrupts.
+- The UI reports CMD protocol, chip revision, CTRL1, and precise errors.
+- Deep motion turns off the screen only *after* the WoM configuration
+  completes and the ext0/timer wake sources are armed; failure leaves
+  screen lit and displays a diagnostic message.
+- GPIO12 EXT0 wake remains combined with a 60-second timer fallback.
+- Deep-sleep wake remains an ESP32 reset; Power tab is automatically shown
+  after a successful wake from an initiated deep-sleep test.
+- Prior hardware power-latch handling (GPIO7 held HIGH) is preserved.
+
+### Recommended next test
+
+Flash the latest firmware and open the **Power** tab. First press
+**Probe IMU: SCREEN STAYS ON**; it deliberately does not go dark.
+After it says ARMED, move the board. Look for:
+
+- SUCCESS: INT2 rose HIGH; WoM status=0x...
+- WoM CTRL9 timeout: 2D=0x... 2F=0x...
+- WoM: INT2 stays HIGH
+- TIMEOUT: INT2 did not rise
+
+Only after the awake probe reports SUCCESS should you press
+**Deep sleep: MOVE to wake** and check whether it blanks the screen.
+If deep wake uses timer instead of EXT0, note the on-screen boot wake
+reason.
+
+Manufacturer references:
+- QMI8658C datasheet Rev 0.6 (Waveshare):
+  https://files.waveshare.com/wiki/common/QMI8658C.pdf
+- QMI8658C datasheet Rev 0.9 (QST):
+  https://qstcorp.com/upload/pdf/202202/QMI8658C%20datasheet%20rev%200.9.pdf
+- Waveshare's newer driver using STATUSINT bit7 and CTRL9 ACK:
+  https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-2.41-V2/blob/main/02_Example/Arduino/03_I2C_QMI8658/qmi8658c.cpp
