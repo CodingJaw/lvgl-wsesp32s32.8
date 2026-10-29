@@ -30,6 +30,11 @@ static bool closeToReference(){
 }
 static void setReturnSleep(bool on,uint8_t angle,uint32_t seconds){
   returnSleepEnabled=on;
+  if(on && !motionEnabled){
+    motionEnabled=true;
+    prefs.putBool("motion",true);
+  }
+  MotionWake::configure(motionEnabled||returnSleepEnabled,motionSensitivity);
   returnAngle=angle<3?angle:1;
   returnDelaySec=(seconds==2||seconds==3||seconds==5||seconds==10)?seconds:3;
   prefs.putBool("returnSleep",on);
@@ -69,7 +74,7 @@ static void setMotion(bool on,uint8_t level) {
   prefs.putBool("motion",motionEnabled);
   prefs.putUChar("motionLevel",motionSensitivity);
   MotionWake::configure(motionEnabled||returnSleepEnabled,motionSensitivity);
-  if(!on)motionHoldUntil=0;
+  if(!on){motionHoldUntil=0;matchingSince=0;}
 }
 static void setMotionHold(uint32_t seconds){
   if(seconds!=30 && seconds!=60 && seconds!=120 && seconds!=300)return;
