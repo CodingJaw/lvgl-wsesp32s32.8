@@ -844,6 +844,8 @@ static void show_page(int page) {
       scene_detail = lv_dropdown_get_selected(lv_event_get_target_obj(e));
     }, LV_EVENT_VALUE_CHANGED, nullptr);
     }
+  } else if(page==10 && CustomRemote::enabled){
+    CustomRemote::render(content);
   } else {
     diag_label = lv_label_create(content);
     lv_obj_align(diag_label, LV_ALIGN_TOP_LEFT, 5, 8);
@@ -887,6 +889,7 @@ void setup() {
   lv_indev_set_type(pointer, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(pointer, touch_cb);
 
+  CustomRemote::begin();
   lv_obj_t *root = lv_screen_active();
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(root, 5, 0);
@@ -897,11 +900,11 @@ void setup() {
   lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_all(nav, 3, 0);
   const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Saver", "Diag"};
-  for (int i = 0; i < 10; ++i) {
+  for (int i = 0; i < (CustomRemote::enabled?11:10); ++i) {
     lv_obj_t *btn = lv_button_create(nav);
     lv_obj_set_width(btn, 74);
     lv_obj_t *label = lv_label_create(btn);
-    lv_label_set_text(label, names[i]);
+    lv_label_set_text(label, i==10?CustomRemote::title.c_str():names[i]);
     lv_obj_center(label);
     lv_obj_add_event_cb(btn, nav_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<intptr_t>(i)));
   }
@@ -933,6 +936,10 @@ void setup() {
 
 void loop() {
   WifiPortal::loop();
+  if(CustomRemote::changed){
+    CustomRemote::changed=false;
+    if(current_page==10 && CustomRemote::enabled)show_page(10);
+  }
   if (Backgrounds::changed && !scene_overlay && !scene_animating) {
     Backgrounds::changed = false;
     refresh_uploaded_images();
