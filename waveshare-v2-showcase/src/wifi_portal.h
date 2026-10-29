@@ -164,7 +164,6 @@ static void begin() {
   startAp();
   startSta();
   Backgrounds::begin();
-  CustomRemote::begin();
   Backgrounds::installRoutes(server, authorized);
   CustomRemote::installRoutes(server, authorized);
   server.on("/", HTTP_GET, home);
