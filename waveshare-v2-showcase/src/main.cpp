@@ -128,6 +128,20 @@ static bool last_scene_cached = false;
 static uint8_t photo_display_mode = 1;
 static lv_image_dsc_t photo_direct_dsc[2][4] = {};
 static bool scene_using_direct = false;
+static bool uploaded_jpeg_present[4] = {};
+static void refresh_uploaded_images() {
+  if (scene_animating || drag_active) return;
+  for (int i=0;i<4;++i) {
+    uploaded_jpeg_present[i] = Backgrounds::exists(i);
+    // Descriptors point into these buffers. Close the viewer before clearing.
+    if (photo_cache[1][i]) {
+      free(photo_cache[1][i]);
+      photo_cache[1][i]=nullptr;
+    }
+    photo_cache_valid[1][i]=false;
+    photo_direct_dsc[1][i] = {};
+  }
+}
 static bool scene_old_using_direct = false;
 static int scene_old_direct_kind = 0;
 static bool direct_ready(int kind) {
@@ -192,11 +206,17 @@ static void decode_room_photo(int kind) {
     }
   } else if (scene_format == 2) {
     const RoomPhoto &asset = room_jpg[kind];
-    if (room_jpg_decoder.openRAM((uint8_t *)asset.data, asset.size, room_jpg_draw)) {
+    uint8_t *custom = nullptr;
+    size_t customLength = 0;
+    bool hasCustom = Backgrounds::read(kind, &custom, &customLength);
+    uint8_t *bytes = hasCustom ? custom : (uint8_t *)asset.data;
+    size_t length = hasCustom ? customLength : asset.size;
+    if (room_jpg_decoder.openRAM(bytes, length, room_jpg_draw)) {
       room_jpg_decoder.setPixelType(RGB565_LITTLE_ENDIAN);
       last_decode_ok = room_jpg_decoder.decode(0, 0, 0);
       room_jpg_decoder.close();
     }
+    if (custom) free(custom);
   }
   last_decode_ms = millis() - started;
   last_scene_ms = last_decode_ms;
@@ -789,6 +809,10 @@ void setup() {
 
 void loop() {
   WifiPortal::loop();
+  if (Backgrounds::changed && !scene_overlay && !scene_animating) {
+    Backgrounds::changed = false;
+    refresh_uploaded_images();
+  }
   uint32_t now = millis();
   lv_tick_inc(now - last_tick);
   last_tick = now;
