@@ -150,9 +150,10 @@ static void render(lv_obj_t *parent) {
     uint16_t selected=lv_dropdown_get_selected((lv_obj_t *)lv_event_get_target(e));
     womThresholdMg = selected==1?40:(selected==2?160:80);
   },LV_EVENT_VALUE_CHANGED,nullptr);
-  button(column,"IMU motion probe (no sleep)",WOM_PROBE);
+  button(column,"Probe IMU: SCREEN STAYS ON",WOM_PROBE);
   button(column,"Deep sleep: MOVE to wake",DEEP_MOTION);
-  title(column,"Try IMU probe first. Deep motion has 60s timer backup; CPU reboots.");
+  title(column,"Probe checks IMU interrupt while AWAKE. Deep motion blanks the display ONLY if setup succeeds.");
+  title(column,"Deep motion has 60s timer fallback; the CPU restarts on wake.");
   title(column,"Power latch: GPIO7 must stay HIGH during deep sleep.");
   title(column,"Hard power off (only PWR button or USB can start again)");
   lv_obj_t *confirm=lv_checkbox_create(column);
@@ -315,6 +316,8 @@ static bool clearStaleMotion() {
 }
 static void startProbe() {
   // This is intentionally an AWAKE hardware IRQ test. The LCD stays ON.
+  setNotice("Probe: configuring IMU; display stays ON.");
+  lv_timer_handler();
   if(!configWoM(womThresholdMg) || !clearStaleMotion()){
     restoreImu();
     return;
@@ -381,6 +384,8 @@ static void unholdBatteryLatch() {
 static void enterDeep(Action a) {
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   if(a==DEEP_MOTION) {
+    setNotice("Configuring IMU motion wake...");
+    lv_timer_handler();
     if(!configWoM(womThresholdMg) || !clearStaleMotion()) {
       restoreImu();
       return;
