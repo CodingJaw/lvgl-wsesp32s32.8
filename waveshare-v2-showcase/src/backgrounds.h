@@ -30,6 +30,7 @@ section{background:#1f2937;border-radius:12px;padding:18px;margin:15px 0}button,
 button{background:#2563eb;color:white;border:0;border-radius:8px}</style></head><body>
 <h2>Background Manager</h2><p>Choose a photo or take one with your phone. The browser crops it to 240 x 320 and uploads a JPEG.</p>)HTML";
     h += String("<p>Storage: ") + (mounted ? "Ready" : "Unavailable (filesystem not mounted)") + "</p>";
+    if (!mounted) h += "<form method='post' action='/background/format' onsubmit=\"return confirm('Initialize photo storage? This erases existing photo files.')\"><button>Initialize photo storage</button></form>";
     const char *names[] = {"Entertainment", "Bedroom", "Kitchen", "Patio"};
     for (int i = 0; i < 4; ++i) {
       h += "<section><b>" + String(names[i]) + "</b><p>" + (exists(i) ? "Custom photo installed" : "Built-in image") + "</p>";
@@ -72,8 +73,15 @@ async function removeBg(n){
 </script></body></html>)HTML";
     server.send(200,"text/html; charset=utf-8",h);
   });
+  server.on("/background/format", HTTP_POST, [&server,authorized]() {
+    if(!authorized())return;
+    if(mounted){server.send(409,"text/plain","Already mounted; formatting refused");return;}
+    mounted=LittleFS.begin(true);
+    server.send(mounted?200:500,"text/plain",mounted?"Photo storage initialized. Return to Background Manager.":"Initialization failed");
+  });
   server.on("/background/file", HTTP_GET, [&server,authorized]() {
     if(!authorized())return;
+    if(!server.hasArg("slot")){server.send(400,"text/plain","Missing slot");return;}
     int slot=server.arg("slot").toInt();
     if(!exists(slot)){server.send(404,"text/plain","Not found");return;}
     File f=LittleFS.open(path(slot),"r");
@@ -82,6 +90,7 @@ async function removeBg(n){
   });
   server.on("/background/delete", HTTP_POST, [&server,authorized]() {
     if(!authorized())return;
+    if(!server.hasArg("slot")){server.send(400,"text/plain","Missing slot");return;}
     int slot=server.arg("slot").toInt();
     if(slot<0||slot>3){server.send(400,"text/plain","Invalid slot");return;}
     if(!mounted){server.send(503,"text/plain","Filesystem unavailable");return;}
@@ -116,7 +125,7 @@ async function removeBg(n){
       if(!authorized())return;
       HTTPUpload &u=server.upload();
       if(u.status==UPLOAD_FILE_START){
-        uploadSlot=server.arg("slot").toInt();
+        uploadSlot=server.hasArg("slot") ? server.arg("slot").toInt() : -1;
         uploadBytes=0;
         uploadFailed=!mounted || uploadSlot<0 || uploadSlot>3;
         uploadTemp="/incoming.jpg";
