@@ -1,11 +1,11 @@
 #pragma once
 #include <Preferences.h>
 #include <math.h>
-#include "classic_savers.h"
+#include "clock_savers.h"
 #include "motion_wake.h"
 namespace Saver {
 static Preferences prefs;
-static uint8_t mode=0; // 0 black, 1 clock, 2 dot, 3 starfield, 4 lines, 5 bubbles, 6 classic stars
+static uint8_t mode=0; // 0 black, 1 uptime, 2 dot, 3 starfield, 4 analog, 5 digital12, 6 digital24
 static uint32_t timeoutSec=60;
 static uint8_t brightness=128;
 static bool motionEnabled=false;
@@ -127,7 +127,7 @@ static void start(){
     lv_obj_set_style_text_font(label,&lv_font_montserrat_28,0);
     lv_obj_center(label);
   }else if(mode>=4){
-    ClassicSavers::init(screen,mode);
+    ClockSavers::init(screen,mode);
   }else{
     const int count=mode==2?1:12;
     for(int i=0;i<count;++i){
@@ -145,6 +145,7 @@ static void start(){
 }
 static void tick(bool touching,bool inhibit){
   const uint32_t now=millis();
+  ClockSavers::service();
   if(!touching) {
     wakeArmed=true;
     if(suppressTouch)suppressTouch=false;
@@ -179,10 +180,10 @@ static void tick(bool touching,bool inhibit){
        (uint32_t)(now-lastActivity)>=timeoutSec*1000UL)start();
     return;
   }
-  if(mode==0 || now-lastFrame<80)return;
+  if(mode==0 || now-lastFrame<(mode>=4?250:80))return;
   lastFrame=now;
   if(mode>=4){
-    ClassicSavers::tick(mode);
+    ClockSavers::tick(mode);
   }else if(mode==1 && label){
     const uint32_t seconds=now/1000;
     // Uptime is shown until network/NTP time is integrated.
