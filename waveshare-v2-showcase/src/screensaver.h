@@ -2,11 +2,14 @@
 #include <Preferences.h>
 #include <math.h>
 #include "classic_savers.h"
+#include "motion_wake.h"
 namespace Saver {
 static Preferences prefs;
 static uint8_t mode=0; // 0 black, 1 clock, 2 dot, 3 starfield, 4 lines, 5 bubbles, 6 classic stars
 static uint32_t timeoutSec=60;
 static uint8_t brightness=128;
+static bool motionEnabled=false;
+static uint8_t motionSensitivity=1;
 static uint32_t lastActivity=0, lastFrame=0;
 static bool active=false, suppressTouch=false, wakeArmed=false, wakeRequested=false;
 static lv_obj_t *screen=nullptr,*label=nullptr,*dots[12]={};
@@ -18,7 +21,19 @@ static void begin(){
   if(mode>6)mode=0;
   timeoutSec=prefs.getUInt("timeout",60);
   if(timeoutSec>3600)timeoutSec=60;
+  motionEnabled=prefs.getBool("motion",false);
+  motionSensitivity=prefs.getUChar("motionLevel",1);
+  if(motionSensitivity>2)motionSensitivity=1;
+  MotionWake::begin();
+  MotionWake::configure(motionEnabled,motionSensitivity);
   lastActivity=millis();
+}
+static void setMotion(bool on,uint8_t level) {
+  motionEnabled=on;
+  motionSensitivity=level<3?level:1;
+  prefs.putBool("motion",motionEnabled);
+  prefs.putUChar("motionLevel",motionSensitivity);
+  MotionWake::configure(motionEnabled,motionSensitivity);
 }
 static void save(uint8_t m,uint32_t timeout){
   mode=m>6?0:m;
@@ -81,6 +96,10 @@ static void tick(bool touching,bool inhibit){
   if(!touching) {
     wakeArmed=true;
     if(suppressTouch)suppressTouch=false;
+  }
+  if(motionEnabled && MotionWake::poll()) {
+    if(active && wakeArmed)wakeRequested=true;
+    else if(!active)activity();
   }
   if(wakeRequested)stop();
   if(touching)activity();
