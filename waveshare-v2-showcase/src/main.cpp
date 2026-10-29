@@ -569,6 +569,9 @@ static void show_page(int page) {
   scene_image = nullptr;
   scene_stats = nullptr;
   lv_obj_clean(content);
+  lv_obj_set_style_bg_color(content,lv_color_hex(0xFFFFFF),0);
+  lv_obj_set_style_bg_opa(content,LV_OPA_COVER,0);
+  lv_obj_set_style_pad_all(content,LV_DPX(4),0);
   if (page == 0) {
     lv_obj_t *label = lv_label_create(content);
     lv_label_set_text(label, "Widgets");
