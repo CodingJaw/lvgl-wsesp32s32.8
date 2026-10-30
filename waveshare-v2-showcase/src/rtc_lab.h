@@ -406,10 +406,19 @@ static void tick(uint32_t now) {
     const time_t stamp=time(nullptr);
     struct tm u={};
     if(stamp>=MIN_VALID_EPOCH && gmtime_r(&stamp,&u)){
-      lv_label_set_text_fmt(systemLabel,
-        "SYSTEM %02d:%02d:%02d UTC  %s",
-        u.tm_hour,u.tm_min,u.tm_sec,
-        ntpPending?"(NTP requested)":(bootClockRestored?"(RTC boot restore)":"(valid)"));
+      struct tm rtcUTC={};
+      if(clockValid && decode(rtcUTC)){
+        const long long difference=(long long)(epochUTC(rtcUTC)-(int64_t)stamp);
+        lv_label_set_text_fmt(systemLabel,
+          "SYSTEM %02d:%02d:%02d UTC %s\nRTC - SYSTEM: %+lld seconds",
+          u.tm_hour,u.tm_min,u.tm_sec,
+          ntpPending?"(NTP requested)":"",difference);
+      }else{
+        lv_label_set_text_fmt(systemLabel,
+          "SYSTEM %02d:%02d:%02d UTC %s",
+          u.tm_hour,u.tm_min,u.tm_sec,
+          ntpPending?"(NTP requested)":(bootClockRestored?"(RTC at boot)":""));
+      }
     }else lv_label_set_text(systemLabel,"SYSTEM time not set (request NTP or copy RTC)");
   }
   if(!response && messageLabel){
