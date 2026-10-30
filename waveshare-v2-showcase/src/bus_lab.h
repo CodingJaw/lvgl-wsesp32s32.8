@@ -123,7 +123,7 @@ static void tick(uint32_t now){
     if(uartReceived.indexOf("WS28V2_UART_LOOP")>=0){
       uartActive=false;
       Serial1.end();
-      note("UART LOOPBACK PASS: exact 17-byte test echo received.");
+      note("UART LOOPBACK PASS: exact 16-byte test echo received.");
     }else if((uint32_t)(now-uartStart)>=1500){
       uartActive=false;
       Serial1.end();
