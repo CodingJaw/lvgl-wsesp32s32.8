@@ -9,6 +9,7 @@
 #include "screensaver.h"
 #include "power_tests.h"
 #include "diagnostics.h"
+#include "navigation.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -863,11 +864,7 @@ static void show_page(int page) {
     lv_label_set_text(invalid,"Page unavailable");
     lv_obj_center(invalid);
   }
-}
-
-static void nav_cb(lv_event_t *e) {
-  int page = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
-  show_page(page);
+  Navigation::setCurrent(page);
 }
 
 void setup() {
@@ -906,21 +903,9 @@ void setup() {
   lv_obj_t *root = lv_screen_active();
   lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_all(root, 5, 0);
-  lv_obj_t *nav = lv_obj_create(root);
-  lv_obj_set_size(nav, LV_PCT(100), 58);
-  lv_obj_add_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(nav, LV_DIR_HOR);
-  lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_all(nav, 3, 0);
-  const char *names[] = {"Widgets", "Controls", "Chart", "List", "Scenes", "PNG", "JPEG", "Wi-Fi", "Saver", "Diag", "Power"};
-  for (int i = 0; i < (CustomRemote::enabled?12:11); ++i) {
-    lv_obj_t *btn = lv_button_create(nav);
-    lv_obj_set_width(btn, 74);
-    lv_obj_t *label = lv_label_create(btn);
-    lv_label_set_text(label, i==11?CustomRemote::title.c_str():names[i]);
-    lv_obj_center(label);
-    lv_obj_add_event_cb(btn, nav_cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<intptr_t>(i)));
-  }
+  // Replace the single overflowing tab strip with switchable navigation.
+  // Menu -> Tabs / Select / Grid. The style persists in Preferences.
+  Navigation::begin(root, show_page);
   content = lv_obj_create(root);
   lv_obj_set_width(content, LV_PCT(100));
   lv_obj_set_flex_grow(content, 1);
@@ -954,7 +939,10 @@ void loop() {
   WifiPortal::loop();
   if(CustomRemote::changed){
     CustomRemote::changed=false;
+    // Rebuild labels and page count if a custom remote is enabled/renamed.
+    Navigation::refresh();
     if(current_page==11 && CustomRemote::enabled)show_page(11);
+    else if(current_page==11 && !CustomRemote::enabled)show_page(0);
   }
   if (Backgrounds::changed && !scene_overlay && !scene_animating) {
     Backgrounds::changed = false;
