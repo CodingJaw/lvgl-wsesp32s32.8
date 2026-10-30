@@ -53,7 +53,7 @@ static void installRoutes(WebServer &server,bool (*authorized)()){
 <style>body{background:#111827;color:#eee;font:16px system-ui;max-width:600px;margin:20px auto;padding:12px}
 input,select,button{padding:10px;margin:6px 0 15px;width:100%;box-sizing:border-box;background:#374151;color:white;border:1px solid #64748b;border-radius:6px}
 label{display:block}button{background:#2563eb}section{padding:15px;background:#1f2937;border-radius:10px}</style></head><body>
-<h2>Custom Remote</h2><p>The Custom tab appears after you enable and save a layout. Restart the remote to show or hide the tab.</p>
+<h2>Custom Remote</h2><p>The Custom panel appears in Menu after you enable and save it. The panel list updates automatically.</p>
 <section><form method="post" action="/custom"><label><input type="checkbox" name="enabled" value="1" style="width:auto" )HTML";
     if(enabled)html+="checked";
     html+=R"HTML(> Show Custom tab</label><label>Tab title</label><input name="title" maxlength="24" value=")HTML";
@@ -102,7 +102,7 @@ label{display:block}button{background:#2563eb}section{padding:15px;background:#1
     prefs.putString("title",title);
     for(int i=0;i<12;++i)prefs.putString(("label"+String(i)).c_str(),labels[i]);
     changed=true;
-    server.send(200,"text/html; charset=utf-8","<html><body><h2>Saved</h2><p>Restart the remote to update tab visibility. Existing Custom tab content updates immediately.</p><a href='/custom'>Back to editor</a></body></html>");
+    server.send(200,"text/html; charset=utf-8","<html><body><h2>Saved</h2><p>The on-device panel list and Custom panel update automatically; no restart is required.</p><a href='/custom'>Back to editor</a></body></html>");
   });
 }
 static void render(lv_obj_t *parent){
