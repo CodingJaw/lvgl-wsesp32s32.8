@@ -6,12 +6,11 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include <math.h>
-#include <driver/i2s.h>
-#include <esp_err.h>
+#include <ESP_I2S.h>
 
 namespace AudioLab {
-static constexpr i2s_port_t PORT=I2S_NUM_1;
 static constexpr uint32_t RATE=22050;
+static I2SClass audio;
 static lv_obj_t *status=nullptr,*level=nullptr;
 static bool active=false,installed=false,playing=false,draining=false;
 static uint32_t drainUntil=0;
@@ -28,44 +27,19 @@ static void note(const String &s) {
 static void stop() {
   playing=false;
   draining=false;
-  if(installed) {
-    i2s_zero_dma_buffer(PORT);
-    i2s_driver_uninstall(PORT);
-  }
+  if(installed)audio.end();
   installed=false;
 }
 static bool initialize() {
   if(installed)return true;
-  i2s_config_t config={};
-  config.mode=(i2s_mode_t)(I2S_MODE_MASTER|I2S_MODE_TX);
-  config.sample_rate=RATE;
-  config.bits_per_sample=I2S_BITS_PER_SAMPLE_16BIT;
-  config.channel_format=I2S_CHANNEL_FMT_RIGHT_LEFT;
-  config.communication_format=I2S_COMM_FORMAT_STAND_I2S;
-  config.intr_alloc_flags=0;
-  config.dma_buf_count=4;
-  config.dma_buf_len=256;
-  config.use_apll=false;
-  config.tx_desc_auto_clear=true;
-  config.fixed_mclk=0;
-  esp_err_t err=i2s_driver_install(PORT,&config,0,nullptr);
-  if(err!=ESP_OK){
-    note(String("I2S install: ")+esp_err_to_name(err));
+  // Arduino-ESP32 3.3.x ESP_I2S driver (not legacy IDF 4.x i2s.h).
+  audio.setPins(48,38,47); // BCLK, WS/LRCK, DOUT -> PCM5101
+  if(!audio.begin(I2S_MODE_STD,RATE,I2S_DATA_BIT_WIDTH_16BIT,
+                  I2S_SLOT_MODE_STEREO)) {
+    note(String("I2S begin failed: ")+String(audio.lastError()));
     return false;
   }
   installed=true;
-  i2s_pin_config_t pins={};
-  pins.bck_io_num=48;
-  pins.ws_io_num=38;
-  pins.data_out_num=47;
-  pins.data_in_num=I2S_PIN_NO_CHANGE;
-  err=i2s_set_pin(PORT,&pins);
-  if(err!=ESP_OK) {
-    note(String("I2S GPIO mapping: ")+esp_err_to_name(err));
-    stop();
-    return false;
-  }
-  i2s_zero_dma_buffer(PORT);
   return true;
 }
 static void startTone(uint16_t hz) {
@@ -154,20 +128,18 @@ static void tick() {
     samples[i*2]=pcm;
     samples[i*2+1]=pcm;
   }
-  size_t written=0;
   const uint32_t before=micros();
-  const esp_err_t err=i2s_write(PORT,samples,count*4,&written,pdMS_TO_TICKS(45));
+  const size_t written=audio.write((const uint8_t *)samples,count*4);
   elapsedWriteUs+=micros()-before;
-  if(err!=ESP_OK || written!=count*4){
-    note(String("I2S write incomplete: ")+esp_err_to_name(err)+
-         " bytes="+String((unsigned)written));
+  if(written!=count*4){
+    note(String("I2S write incomplete: bytes=")+String((unsigned)written)+
+         " expected="+String(unsigned(count*4)));
     stop();
     return;
   }
   frame+=count;
   if(frame>=targetFrames){
-    // ESP-IDF 4.4 has no i2s_wait_tx_done(). The final DMA blocks
-    // are queued; drain for 150ms without blocking the LVGL main loop.
+    // Allow queued DMA buffers to drain without blocking the LVGL loop.
     playing=false;
     draining=true;
     drainUntil=millis()+150;
