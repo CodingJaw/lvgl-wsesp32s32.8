@@ -60,7 +60,7 @@ static void loadEditor(){
   for(int i=0;i<6;i++)if(fields[i])lv_spinbox_set_value(fields[i],defaults[i]);
   note("Clocks unset. Editor begins at 2026-01-01 12:00; adjust manually.");
 }
-static bool localEditorEpoch(time_t &epoch,struct tm &local){
+static bool localEditorEpoch(time_t &epoch,struct tm &localTime){
   for(int i=0;i<6;i++)if(!fields[i]){
     note("Manual date/time editor is unavailable.");
     return false;
@@ -95,13 +95,13 @@ static bool localEditorEpoch(time_t &epoch,struct tm &local){
     note("This local time does not exist (DST spring-forward gap).");
     return false;
   }
-  epoch=stamp;local=converted;
+  epoch=stamp;localTime=converted;
   return true;
 }
 static void manualSet(bool updateRTC){
   time_t epoch=0;
-  struct tm local={};
-  if(!localEditorEpoch(epoch,local))return;
+  struct tm localTime={};
+  if(!localEditorEpoch(epoch,localTime))return;
   struct timeval tv={};
   tv.tv_sec=epoch;tv.tv_usec=0;
   if(settimeofday(&tv,nullptr)!=0){
@@ -114,7 +114,7 @@ static void manualSet(bool updateRTC){
   if(ntpSwitch)lv_obj_remove_state(ntpSwitch,LV_STATE_CHECKED);
 
   char stamp[45]={};
-  strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M:%S %Z",&local);
+  strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M:%S %Z",&localTime);
   if(!updateRTC){
     note(String("SYSTEM manually set to ")+stamp+
       ". Auto NTP is OFF; RTC was not changed.");
@@ -320,10 +320,10 @@ static void tick(uint32_t ms){
   if(lastUiMs && (uint32_t)(ms-lastUiMs)<1000)return;
   lastUiMs=ms;
   const time_t stamp=time(nullptr);
-  struct tm local={},utc={};
-  if(stamp>=MIN_EPOCH && localtime_r(&stamp,&local) && gmtime_r(&stamp,&utc)){
+  struct tm localTime={},utc={};
+  if(stamp>=MIN_EPOCH && localtime_r(&stamp,&localTime) && gmtime_r(&stamp,&utc)){
     char localText[72]={},utcText[64]={};
-    strftime(localText,sizeof(localText),"LOCAL %Y-%m-%d\n%I:%M:%S %p %Z",&local);
+    strftime(localText,sizeof(localText),"LOCAL %Y-%m-%d\n%I:%M:%S %p %Z",&localTime);
     strftime(utcText,sizeof(utcText),"SYS UTC %Y-%m-%d %H:%M:%S",&utc);
     if(localLabel)lv_label_set_text(localLabel,localText);
     if(utcLabel)lv_label_set_text(utcLabel,utcText);
