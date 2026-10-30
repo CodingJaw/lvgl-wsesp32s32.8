@@ -2,7 +2,8 @@
 // Navigation experiments for the Waveshare ESP32-S3-Touch-LCD-2.8 V2 (240x320).
 // Three switchable layouts: scrollable tabs, compact drop-down, grouped launcher.
 // Existing page indexes stay unchanged (0..10, 11 optional remote).
-// Hardware labs use pages 12..17. The selector skips remote if disabled.
+// Hardware labs use pages 12..17; Clock settings is 18.
+// The selector skips optional custom remote page 11 when disabled.
 // Does not touch IMU, sleep/wake configuration, GPIO, or scene rendering.
 #include <Arduino.h>
 #include <lvgl.h>
@@ -17,14 +18,14 @@ static bool initialized=false;
 static Layout layout=LAUNCHER;
 static lv_obj_t *root=nullptr,*navHost=nullptr,*launcher=nullptr;
 static lv_obj_t *picker=nullptr,*pageTitle=nullptr;
-static lv_obj_t *tabButtons[18]={};
+static lv_obj_t *tabButtons[19]={};
 static int currentPage=0;
 static void (*goToPage)(int)=nullptr;
 
 static bool validPage(int page) {
-  return page>=0 && page<=17 && (page!=11 || CustomRemote::enabled);
+  return page>=0 && page<=18 && (page!=11 || CustomRemote::enabled);
 }
-static int pageCount() { return CustomRemote::enabled?18:17; }
+static int pageCount() { return CustomRemote::enabled?19:18; }
 static int pageAt(int visibleIndex) {
   if(visibleIndex<0 || visibleIndex>=pageCount())return -1;
   return (!CustomRemote::enabled && visibleIndex>=11)?visibleIndex+1:visibleIndex;
@@ -37,11 +38,11 @@ static const char *pageName(int page) {
   static const char *const names[]={
     "Widgets","Controls","Chart","List",
     "Scenes","PNG","JPEG","Wi-Fi","Saver","Diag","Power",
-    "Remote","RTC","microSD","Audio","I2C/UART","Gyro","BLE"
+    "Remote","RTC","microSD","Audio","I2C/UART","Gyro","BLE","Clock"
   };
   if(page==11 && CustomRemote::enabled)
     return CustomRemote::title.length()?CustomRemote::title.c_str():"Remote";
-  return page>=0 && page<18?names[page]:"Unknown";
+  return page>=0 && page<19?names[page]:"Unknown";
 }
 static void colorButton(lv_obj_t *button, bool selected) {
   if(!button)return;
@@ -79,7 +80,7 @@ static void setCurrent(int page) {
   currentPage=page;
   if(picker)lv_dropdown_set_selected(picker,(uint16_t)visibleIndex(page));
   if(pageTitle)lv_label_set_text(pageTitle,pageName(page));
-  for(int i=0;i<18;i++)if(tabButtons[i])colorButton(tabButtons[i],i==page);
+  for(int i=0;i<19;i++)if(tabButtons[i])colorButton(tabButtons[i],i==page);
 }
 static void navigate(int page) {
   if(!validPage(page))return;
@@ -255,13 +256,13 @@ static void openLauncher() {
   const int graphics[]={4,5,6};
   const int hardware[]={9,10,12,13,14,16};
   const int connectivity[]={15,17};
-  const int settings[]={7,8};
+  const int settings[]={7,8,18};
   const int remote[]={11};
   addCategory(scroll,"Interface tests",demos,4);
   addCategory(scroll,"Graphics and scenes",graphics,3);
   addCategory(scroll,"Hardware diagnostics",hardware,6);
   addCategory(scroll,"Connections and buses",connectivity,2);
-  addCategory(scroll,"Wireless and settings",settings,2);
+  addCategory(scroll,"Wireless and settings",settings,3);
   if(CustomRemote::enabled)addCategory(scroll,"Remote",remote,1);
 }
 static void homeEvent(lv_event_t *) {openLauncher();}
