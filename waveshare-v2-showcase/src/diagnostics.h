@@ -25,6 +25,7 @@ static lv_obj_t *pauseText=nullptr;
 
 static uint32_t startedMs=0, lastTickMs=0, lastSlowMs=0;
 static uint32_t touchReads=0, touchErrors=0, touchPresses=0;
+static uint8_t fingerCount=0,maxFingerCount=0;
 static uint16_t touchX=0, touchY=0;
 static bool touching=false;
 static uint32_t loopCount=0, loopPerSecond=0;
@@ -83,6 +84,7 @@ static lv_obj_t *miniButton(lv_obj_t *parent,const char *label,
 }
 static void resetCounters() {
   touchReads=touchErrors=touchPresses=0;
+  fingerCount=maxFingerCount=0;
   imuReads=imuErrors=peakMotionMg=0;
   motionMg=0;
   lastAccelValid=false;
@@ -195,15 +197,21 @@ static void render(lv_obj_t *parent,
     "LCD flush/s is not full-frame FPS.\n"
     "IMU gyro stays OFF to conserve power.\n"
     "Battery voltage is approximate; current and true charge % need external hardware.\n"
+    "Touch contact count is from the CST3530 frame; only first contact XY decoded.\n"
     "Diagnostics does not change sleep or wake settings.");
 }
-static void noteTouchSample(bool ok,bool down,uint16_t x,uint16_t y) {
+static void noteTouchSample(bool ok,bool down,uint16_t x,uint16_t y,
+                            uint8_t reportedFingers) {
   if(!active)return;
   ++touchReads;
   if(!ok)++touchErrors;
   if(down && !touching)++touchPresses;
   touching=down;
-  if(ok){touchX=x;touchY=y;}
+  if(ok){
+    touchX=x;touchY=y;
+    fingerCount=down?reportedFingers:0;
+    if(fingerCount>maxFingerCount)maxFingerCount=fingerCount;
+  }
 }
 static void sampleIMU() {
   if(!MotionWake::ready)return;
@@ -262,8 +270,10 @@ static void tick(uint32_t now,uint32_t flushCalls,uint32_t flushPixels,
   sampleIMU();
   if(touchLabel)lv_label_set_text_fmt(touchLabel,
     "x:%u  y:%u  %s | IRQ4:%d\n"
+    "Reported contacts:%u (peak %u)\n"
     "Reads:%lu Errors:%lu Presses:%lu",
     (unsigned)touchX,(unsigned)touchY,touching?"DOWN":"UP",digitalRead(4),
+    (unsigned)fingerCount,(unsigned)maxFingerCount,
     (unsigned long)touchReads,(unsigned long)touchErrors,
     (unsigned long)touchPresses);
   if(motionLabel){
