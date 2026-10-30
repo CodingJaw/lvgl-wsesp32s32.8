@@ -10,6 +10,12 @@
 #include "power_tests.h"
 #include "diagnostics.h"
 #include "navigation.h"
+#include "rtc_lab.h"
+#include "sd_lab.h"
+#include "audio_lab.h"
+#include "bus_lab.h"
+#include "gyro_lab.h"
+#include "ble_lab.h"
 
 // Confirmed from the Waveshare V2 swipe-test serial output.
 static constexpr int LCD_SCK = 40;
@@ -570,6 +576,12 @@ static void show_page(int page) {
   current_page = page;
   PowerTests::detach();
   Diagnostics::detach();
+  RTCLab::detach();
+  SDLab::detach();
+  AudioLab::detach();
+  BusLab::detach();
+  GyroLab::detach();
+  BLELab::detach();
   network_status_label = nullptr;
   scene_image = nullptr;
   scene_stats = nullptr;
@@ -859,6 +871,18 @@ static void show_page(int page) {
     PowerTests::render(content);
   } else if(page==11 && CustomRemote::enabled){
     CustomRemote::render(content);
+  } else if(page==12){
+    RTCLab::render(content);
+  } else if(page==13){
+    SDLab::render(content);
+  } else if(page==14){
+    AudioLab::render(content);
+  } else if(page==15){
+    BusLab::render(content);
+  } else if(page==16){
+    GyroLab::render(content);
+  } else if(page==17){
+    BLELab::render(content);
   } else {
     lv_obj_t *invalid=lv_label_create(content);
     lv_label_set_text(invalid,"Page unavailable");
@@ -955,6 +979,16 @@ void loop() {
   PowerTests::tick(touch_pressed);
   Saver::tick(touch_pressed,scene_animating || drag_active);
   Diagnostics::tick(now,flush_calls,flush_pixels,flush_us,flush_max_us,Saver::active);
+  // Each hardware test is opt-in. Tickers return immediately when inactive.
+  // Do not touch or reconfigure WoM while PowerTests owns the IMU.
+  if(!Saver::active) {
+    RTCLab::tick(now);
+    SDLab::tick(now);
+    AudioLab::tick();
+    BusLab::tick(now);
+    GyroLab::tick(now);
+    BLELab::tick();
+  }
   if(Saver::active || Saver::suppressTouch) {
     delay(5);
     return;
