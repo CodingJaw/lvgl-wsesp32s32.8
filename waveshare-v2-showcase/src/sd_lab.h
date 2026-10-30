@@ -127,10 +127,16 @@ static lv_obj_t *button(lv_obj_t *parent,const char *name,lv_event_cb_t cb) {
   return b;
 }
 static void detach() {
+  // Release the SDMMC peripheral when leaving so battery/sleep experiments
+  // cannot accidentally inherit an active storage peripheral.
+  if(mounted){
+    SD_MMC.end();
+    mounted=false;
+    Serial.println("[SD] auto-unmounted on page exit");
+  }
   active=false;
+  allowWrite=false;
   status=files=message=nullptr;
-  // Leave the card mounted for possible later image/profile file support.
-  // Manual "Unmount" is provided for removal/power testing.
 }
 static void render(lv_obj_t *parent) {
   detach();
