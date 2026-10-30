@@ -77,18 +77,27 @@ static void tick(){
   pendingScan=false;
   hasScanned=true;
   Serial.println("[BLE] begin opt-in 3s scan");
-  BLEDevice::init("WS28V2-Diagnostics");
+  if(!BLEDevice::init("WS28V2-Diagnostics")){
+    note("BLE controller initialization failed; scan cancelled.");
+    return;
+  }
   BLEScan *scanner=BLEDevice::getScan();
   scanner->setActiveScan(false);
   scanner->setInterval(160);
   scanner->setWindow(80);
-  BLEScanResults found=scanner->start(3,false);
-  String out="BLE advertisements: "+String(found.getCount())+"\n";
-  const int n=found.getCount()<6?found.getCount():6;
+  BLEScanResults *found=scanner->start(3,false);
+  if(!found){
+    scanner->stop();
+    BLEDevice::deinit(true);
+    note("BLE scan returned no result handle. Controller stopped.");
+    return;
+  }
+  String out="BLE advertisements: "+String(found->getCount())+"\n";
+  const int n=found->getCount()<6?found->getCount():6;
   for(int i=0;i<n;i++){
-    BLEAdvertisedDevice device=found.getDevice(i);
+    BLEAdvertisedDevice device=found->getDevice(i);
     out+=String(i+1)+": ";
-    if(device.haveName())out+=String(device.getName().c_str());
+    if(device.haveName())out+=device.getName();
     else out+="(unnamed)";
     out+=" RSSI:"+String(device.getRSSI())+" dBm\n";
   }
