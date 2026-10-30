@@ -323,7 +323,7 @@ static void tick(uint32_t ms){
   struct tm local={},utc={};
   if(stamp>=MIN_EPOCH && localtime_r(&stamp,&local) && gmtime_r(&stamp,&utc)){
     char localText[72]={},utcText[64]={};
-    strftime(localText,sizeof(localText),"LOCAL %Y-%m-%d\\n%I:%M:%S %p %Z",&local);
+    strftime(localText,sizeof(localText),"LOCAL %Y-%m-%d\n%I:%M:%S %p %Z",&local);
     strftime(utcText,sizeof(utcText),"SYS UTC %Y-%m-%d %H:%M:%S",&utc);
     if(localLabel)lv_label_set_text(localLabel,localText);
     if(utcLabel)lv_label_set_text(utcLabel,utcText);
