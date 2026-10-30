@@ -1,6 +1,7 @@
 #pragma once
 #include <time.h>
 #include <WiFi.h>
+#include "time_prefs.h"
 // Clock savers: analog face, 12-hour digital and 24-hour digital.
 // NTP is only used when the station has Internet; no invented time while offline.
 namespace ClockSavers {
@@ -11,10 +12,19 @@ static lv_point_precise_t handPoints[3][2]={};
 static lv_obj_t *ticks[12]={};
 static uint32_t lastSyncCheck=0;
 static void service(){
+  // RTC and ESP32 system epoch remain UTC. Localtime uses TimePrefs.
+  // Don't start NTP in manual/offline mode; manual edits must persist.
+  if(!TimePrefs::autoNtp){
+    if(ntpConfigured){
+      TimePrefs::setAutoNtp(false); // Ensure active SNTP service is stopped.
+      ntpConfigured=false;
+    }
+    return;
+  }
   if(WiFi.status()==WL_CONNECTED && !ntpConfigured){
-    configTzTime("EST5EDT,M3.2.0,M11.1.0","pool.ntp.org","time.nist.gov");
+    configTzTime(TimePrefs::posix(),"pool.ntp.org","time.nist.gov");
     ntpConfigured=true;
-    Serial.println("[CLOCK] NTP configured (US Eastern time)");
+    Serial.printf("[CLOCK] NTP configured with zone %s\n",TimePrefs::name());
   }
 }
 static bool current(tm &out){
@@ -70,7 +80,7 @@ static void init(lv_obj_t *parent,int mode){
 static void tick(int mode){
   tm t={};
   if(!current(t)){
-    if(status)lv_label_set_text(status,"Waiting for Wi-Fi time");
+    if(status)lv_label_set_text(status,"Clock unset - use Clock panel");
     if(digital)lv_label_set_text(digital,"--:--");
     if(dateLabel)lv_label_set_text(dateLabel,"");
     return;
