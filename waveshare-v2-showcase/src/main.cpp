@@ -11,6 +11,7 @@
 #include "diagnostics.h"
 #include "navigation.h"
 #include "rtc_lab.h"
+#include "clock_panel.h"
 #include "sd_lab.h"
 #include "audio_lab.h"
 #include "bus_lab.h"
@@ -577,6 +578,7 @@ static void show_page(int page) {
   PowerTests::detach();
   Diagnostics::detach();
   RTCLab::detach();
+  ClockPanel::detach();
   SDLab::detach();
   AudioLab::detach();
   BusLab::detach();
@@ -883,6 +885,8 @@ static void show_page(int page) {
     GyroLab::render(content);
   } else if(page==17){
     BLELab::render(content);
+  } else if(page==18){
+    ClockPanel::render(content);
   } else {
     lv_obj_t *invalid=lv_label_create(content);
     lv_label_set_text(invalid,"Page unavailable");
@@ -949,6 +953,8 @@ void setup() {
     scene_old_dsc = scene_dsc;
     scene_old_dsc.data = reinterpret_cast<const uint8_t *>(scene_old_pixels);
   }
+  // Restore saved TZ and auto/manual time policy before any clock or NTP service.
+  TimePrefs::begin();
   WifiPortal::begin();
   Saver::begin();
   // Saver::begin() initializes the QMI/RTC shared I2C bus (GPIO11/10).
@@ -987,6 +993,7 @@ void loop() {
   // Do not touch or reconfigure WoM while PowerTests owns the IMU.
   if(!Saver::active) {
     RTCLab::tick(now);
+    ClockPanel::tick(now);
     SDLab::tick(now);
     AudioLab::tick();
     BusLab::tick(now);
