@@ -82,3 +82,36 @@ The prior working branch `waveshare-v2-before-hardware-lab` is preserved as a re
 - BLE scan is compiled out of the normal firmware and explicitly gated in the optional environment.
 - Full multitouch packet decoding, USB HID host/device, power consumption in mA/uA and charger current are not exercised by these panels.
 - This change was **source-reviewed** against the current manufacturer schematic, Arduino-ESP32 3.3 APIs and the repository. It has **not been compiled or run on the physical Waveshare** in this environment. Report build errors or on-device symptoms verbatim for a targeted fix.
+
+
+## PCF85063 RTC fix — October 30, 2026
+
+A critical bug existed in the first RTC page: RTC reads used `MotionWake::readRegs(0x04,...)`, which always performs I²C reads from the QMI8658 address **0x6B**, not RTC **0x51**. RTC writes were sent to 0x51 but the verification step also incorrectly read 0x6B. Consequently the displayed time was not clock data and writes couldn't be verified.
+
+Corrected in `src/rtc_lab.h`:
+
+- All PCF85063 reads and writes now explicitly address 7-bit I²C **0x51** on the existing `MotionWake::imuBus` (SDA GPIO11, SCL GPIO10), which `Saver::begin()` initializes. No second bus startup or reconfiguration.
+- Read two control registers at 0x00/0x01, then all seven time registers at 0x04..0x0A in one I²C transaction, as required by NXP's PCF85063A datasheet.
+- Validate BCD, weekday, calendar ranges, and the **OS oscillator-stop bit** in Seconds 0x04 bit7. Inspect the independent **STOP** bit at Control1 0x00 bit5. Either condition marks the RTC time invalid or halted.
+- The RTC page displays an independent, seconds-updating RTC UTC clock and ESP32 SYSTEM UTC clock, plus a tick count and `RUNNING` / `NOT TICKING` / `INVALID` determination.
+- `Request NTP` starts an asynchronous NTP request when Wi-Fi station is connected. This updates only SYSTEM UTC, **not** the PCF85063.
+- `Copy SYSTEM UTC -> RTC` explicitly writes a valid system clock into the RTC and reads it back from address 0x51 to verify within one second. On explicit sync only, it clears STOP and selects 24h mode when necessary. Other control/alarm settings are preserved.
+- `Copy RTC UTC -> SYSTEM` restores the ESP32's system clock from a valid RTC.
+- `Advance RTC by 1 minute` is guarded by an explicit checkbox; it is a temporary test that intentionally changes the RTC. After confirming the minute changes, use `Copy SYSTEM UTC -> RTC` to restore accurate time.
+- On startup, after the IMU initializes the shared I²C bus, firmware **reads** the RTC and populates ESP32 system UTC only if the system clock is unset and RTC date, OS, and STOP state are valid. It never writes the RTC automatically, and the proven QMI8658 WoM register sequence is unchanged.
+- The page keeps RTC/system clock and error messages fixed above a scrolling controls section, so you can watch the seconds while pressing buttons.
+
+### Recommended RTC re-test
+
+1. Open **RTC** and observe the **RTC 0x51** time for at least five seconds. It should increment once per second and report `Tick:RUNNING`. If not, note `OS`, `STOP`, I²C failure count and message text.
+2. Check **SYSTEM UTC**. If it is unset, connect Home Wi-Fi (STA), tap **Request NTP**, then verify the SYSTEM readout shows a plausible time.
+3. Tap **Copy SYSTEM UTC -> RTC**, then check RTC time jumps to match SYSTEM UTC and continues incrementing.
+4. Check `Allow RTC +1 minute TEST`, tap **Advance RTC by 1 minute**, and verify RTC jumps exactly one minute ahead of SYSTEM. Afterward tap **Copy SYSTEM UTC -> RTC** to restore accurate time.
+5. Reboot with Wi-Fi unavailable. If the RTC backup supply is present and the time remains valid, the ESP32 SYSTEM clock should be restored by RTC on startup.
+6. Finally, confirm **Power -> Deep sleep: MOVE to wake** still works. This fix does not touch the existing QMI8658 wake code.
+
+**Notes:** The RTC stores **UTC**, not local Eastern time. The value seen on the device may differ from wall time by the time-zone offset. NTP reception is asynchronous and the first 20-second window does not by itself prove a new SNTP packet arrived; the test labels it as such. The RTC backup cell is required for retention if all other board power is removed.
+
+References:
+- https://docs.waveshare.com/ESP32-S3-Touch-LCD-2.8
+- https://www.nxp.com/docs/en/data-sheet/PCF85063A.pdf
