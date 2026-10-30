@@ -54,3 +54,12 @@ git pull --ff-only
 ```
 
 This code was integrated and source-reviewed against LVGL 9.2 APIs. No local PlatformIO compiler or attached Waveshare hardware is available here, so the physical display/menu behavior still needs validation on the board.
+
+
+## Hardware Lab extension (October 2026)
+
+The menu now includes the first set of additional hardware tests. Existing pages retain their IDs: Diagnostics=9, Power=10, optional Custom=11. RTC=12, microSD=13, Audio=14, I2C/UART=15, Gyro=16, and BLE=17. Tabs, selector, and grid navigation all **skip optional page 11** when the custom remote is disabled; new hardware pages remain reachable.
+
+The grouped launcher no longer labels RTC, microSD, Audio and BLE as unimplemented. Details, setup warnings and the test order are in [HARDWARE_LAB_TESTS.md](HARDWARE_LAB_TESTS.md).
+
+The normal firmware leaves Bluetooth disabled and the BLE test separate behind the `waveshare28v2-ble` PlatformIO environment.
