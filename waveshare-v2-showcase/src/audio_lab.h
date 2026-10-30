@@ -13,7 +13,8 @@ namespace AudioLab {
 static constexpr i2s_port_t PORT=I2S_NUM_1;
 static constexpr uint32_t RATE=22050;
 static lv_obj_t *status=nullptr,*level=nullptr;
-static bool active=false,installed=false,playing=false;
+static bool active=false,installed=false,playing=false,draining=false;
+static uint32_t drainUntil=0;
 static uint32_t frame=0,targetFrames=0;
 static uint16_t frequency=440;
 static int gainPercent=20;
@@ -26,6 +27,7 @@ static void note(const String &s) {
 }
 static void stop() {
   playing=false;
+  draining=false;
   if(installed) {
     i2s_zero_dma_buffer(PORT);
     i2s_driver_uninstall(PORT);
@@ -128,7 +130,16 @@ static void render(lv_obj_t *parent) {
     "No automatic audio at startup. The I2S driver is released after playback.");
 }
 static void tick() {
-  if(!active||!playing)return;
+  if(!active)return;
+  if(draining) {
+    if((int32_t)(millis()-drainUntil)>=0) {
+      draining=false;
+      stop();
+      note(String("Tone finished. I2S released; queued audio drained."));
+    }
+    return;
+  }
+  if(!playing)return;
   int16_t samples[2*256];
   uint32_t count=targetFrames-frame;
   if(count>256)count=256;
@@ -155,10 +166,13 @@ static void tick() {
   }
   frame+=count;
   if(frame>=targetFrames){
-    // Allow DMA's last frames to finish without a large UI stall.
-    i2s_wait_tx_done(PORT,pdMS_TO_TICKS(150));
-    stop();
-    note(String("Tone finished. Total write time: ")+String(elapsedWriteUs/1000)+"ms");
+    // ESP-IDF 4.4 has no i2s_wait_tx_done(). The final DMA blocks
+    // are queued; drain for 150ms without blocking the LVGL main loop.
+    playing=false;
+    draining=true;
+    drainUntil=millis()+150;
+    note(String("PCM queued; draining I2S. Write time: ")+
+         String(elapsedWriteUs/1000)+"ms");
   }
 }
 } // namespace AudioLab
