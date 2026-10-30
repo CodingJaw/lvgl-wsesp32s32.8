@@ -78,6 +78,8 @@ static void detach() {
 static void render(lv_obj_t *parent) {
   detach();
   active=true;
+  // RTC interrupt output is open-drain; monitor without touching alarm settings.
+  pinMode(9,INPUT_PULLUP);
   lv_obj_set_scroll_dir(parent,LV_DIR_VER);
   lv_obj_t *container=lv_obj_create(parent);
   lv_obj_set_size(container,LV_PCT(100),LV_PCT(100));
