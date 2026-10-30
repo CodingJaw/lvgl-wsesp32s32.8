@@ -78,6 +78,9 @@ static lv_obj_t *button(lv_obj_t *parent,const char *name,lv_event_cb_t cb) {
 static void render(lv_obj_t *parent){
   detach();
   active=true;
+  pinMode(15,INPUT); // Spare IOs sampled only, never driven.
+  pinMode(18,INPUT);
+  pinMode(9,INPUT_PULLUP);
   lv_obj_t *pane=lv_obj_create(parent);
   lv_obj_set_size(pane,LV_PCT(100),LV_PCT(100));
   lv_obj_set_style_pad_all(pane,4,0);
