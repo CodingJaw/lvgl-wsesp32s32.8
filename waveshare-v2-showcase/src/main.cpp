@@ -951,6 +951,10 @@ void setup() {
   }
   WifiPortal::begin();
   Saver::begin();
+  // Saver::begin() initializes the QMI/RTC shared I2C bus (GPIO11/10).
+  // Restore ESP32 system UTC from PCF85063 only if the RTC is valid and
+  // the system time is not already set; never write the RTC automatically.
+  RTCLab::begin();
   PowerTests::begin();
   // Deep sleep restarts the ESP32. Return to the Power test tab and show
   // the actual wake reason instead of silently opening the first tab.
