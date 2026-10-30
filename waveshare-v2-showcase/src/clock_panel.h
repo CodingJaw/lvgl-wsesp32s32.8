@@ -168,8 +168,8 @@ static lv_obj_t *button(lv_obj_t *parent,const char *name,lv_event_cb_t callback
 static void adjust(lv_event_t *e){
   lv_obj_t *spin=(lv_obj_t *)lv_event_get_user_data(e);
   if(!spin)return;
-  lv_spinbox_set_step(spin,1);
-  if(lv_obj_get_user_data(lv_event_get_target_obj(e)) == (void*)1)
+  // Preserve the tapped digit selection (ones/tens/hundreds).
+  if(reinterpret_cast<intptr_t>(lv_obj_get_user_data(lv_event_get_target_obj(e))) == 1)
     lv_spinbox_increment(spin);
   else lv_spinbox_decrement(spin);
 }
@@ -307,7 +307,7 @@ static void render(lv_obj_t *parent){
   lv_obj_set_width(hint,LV_PCT(100));
   lv_label_set_long_mode(hint,LV_LABEL_LONG_WRAP);
   lv_label_set_text(hint,
-    "Use +/- to edit each field. Calendar and DST gaps are checked.\n"
+    "Tap a digit, then +/- (ones/tens). Calendar and DST gaps checked.\n"
     "Manual Set turns automatic NTP OFF to prevent overwrites.\n"
     "The RTC always stores UTC; local time and daylight saving are display conversions.\n"
     "A duplicated hour when clocks go back selects the system's default occurrence.\n"
@@ -323,8 +323,8 @@ static void tick(uint32_t ms){
   struct tm local={},utc={};
   if(stamp>=MIN_EPOCH && localtime_r(&stamp,&local) && gmtime_r(&stamp,&utc)){
     char localText[72]={},utcText[64]={};
-    strftime(localText,sizeof(localText),"LOCAL %a %b %d %Y  %I:%M:%S %p %Z",&local);
-    strftime(utcText,sizeof(utcText),"SYSTEM UTC  %Y-%m-%d %H:%M:%S",&utc);
+    strftime(localText,sizeof(localText),"LOCAL %Y-%m-%d\\n%I:%M:%S %p %Z",&local);
+    strftime(utcText,sizeof(utcText),"SYS UTC %Y-%m-%d %H:%M:%S",&utc);
     if(localLabel)lv_label_set_text(localLabel,localText);
     if(utcLabel)lv_label_set_text(utcLabel,utcText);
   }else{
@@ -337,7 +337,7 @@ static void tick(uint32_t ms){
   if(rtcLabel){
     if(ok && RTCLab::decode(rtcUTC)){
       char buff[60]={};
-      strftime(buff,sizeof(buff),"RTC UTC  %Y-%m-%d %H:%M:%S",&rtcUTC);
+      strftime(buff,sizeof(buff),"RTC UTC %Y-%m-%d %H:%M:%S",&rtcUTC);
       lv_label_set_text(rtcLabel,buff);
     }else{
       lv_label_set_text(rtcLabel,"RTC UTC: unavailable / oscillator stopped");
