@@ -5,11 +5,13 @@
 #include <Preferences.h>
 #include <time.h>
 #include <stdlib.h>
+#include <esp_sntp.h>
 
 namespace TimePrefs {
 static Preferences prefs;
 static bool initialized=false;
 static uint8_t selected=1; // Existing showcase behavior: US Eastern with DST.
+static bool autoNtp=true; // Manual setting turns this off to prevent overwrite.
 struct Zone {const char *name; const char *posix;};
 static constexpr Zone zones[]={
   {"UTC", "UTC0"},
@@ -37,6 +39,7 @@ static void begin() {
   prefs.begin("clock-config",false);
   selected=prefs.getUChar("tz",1);
   if(selected>=COUNT)selected=1;
+  autoNtp=prefs.getBool("ntp",true);
   initialized=true;
   apply();
 }
@@ -46,6 +49,14 @@ static bool choose(uint8_t index) {
   if(initialized)prefs.putUChar("tz",index);
   apply(); // No change to RTC UTC or system epoch.
   return true;
+}
+static void setAutoNtp(bool on) {
+  autoNtp=on;
+  if(initialized)prefs.putBool("ntp",on);
+  // Unlike simply disabling future configTime(), this also stops an
+  // already-running SNTP client so manual time is not overwritten.
+  if(!on && esp_sntp_enabled())esp_sntp_stop();
+  Serial.printf("[CLOCK] automatic NTP: %s\n",on?"ON":"OFF");
 }
 static const char *name(){return zones[selected].name;}
 static const char *posix(){return zones[selected].posix;}
