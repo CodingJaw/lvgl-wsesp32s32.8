@@ -12,6 +12,8 @@
 #include <time.h>
 #include <sys/time.h>
 #include "motion_wake.h"
+#include "time_prefs.h"
+#include "clock_savers.h"
 
 namespace RTCLab {
 static constexpr uint8_t ADDRESS=0x51;
@@ -301,8 +303,10 @@ static void render(lv_obj_t *parent) {
       return;
     }
     ntpPending=true;ntpStartMs=millis();
-    configTime(0,0,"pool.ntp.org","time.google.com");
-    notice("NTP requested; monitor SYSTEM UTC below (20s timeout).");
+    TimePrefs::setAutoNtp(true);
+    configTzTime(TimePrefs::posix(),"pool.ntp.org","time.google.com");
+    ClockSavers::ntpConfigured=true;
+    notice("NTP requested; local zone preserved. Monitor SYSTEM UTC.");
   });
   button(controls,"Copy SYSTEM UTC -> RTC",[](lv_event_t *){
     const time_t stamp=time(nullptr);
