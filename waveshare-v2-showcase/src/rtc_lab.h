@@ -188,8 +188,9 @@ static bool writeUTC(const struct tm &t) {
     return false;
   }
   struct tm check={};
-  if(!clockValid || !decode(check) ||
-     llabs(epochUTC(t)-epochUTC(check))>1){
+  const bool verified=clockValid && decode(check);
+  const int64_t errorSeconds=verified ? (epochUTC(t)-epochUTC(check)) : 9999LL;
+  if(!verified || errorSeconds>1 || errorSeconds< -1){
     notice(String("RTC verify FAILED. ")+lastError);
     return false;
   }
