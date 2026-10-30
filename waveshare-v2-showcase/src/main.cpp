@@ -84,7 +84,7 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
     touch_pressed = ok && count > 0 && count <= 5 &&
                     (frame[8] & 0xf0) != 0 && x < WIDTH && y < HEIGHT;
     if (touch_pressed) { touch_x = x; touch_y = y; }
-    Diagnostics::noteTouchSample(ok,touch_pressed,touch_x,touch_y);
+    Diagnostics::noteTouchSample(ok,touch_pressed,touch_x,touch_y,count);
   }
   // A wake touch must never reach the previous screen's buttons.
   if (touch_pressed) Saver::activity();
